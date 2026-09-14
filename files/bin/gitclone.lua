@@ -1,5 +1,4 @@
 -- Based on https://github.com/Konijima/cc-git-clone
-
 local expect = dofile("rom/modules/main/cc/expect.lua").expect
 
 local args = {...}
@@ -9,7 +8,7 @@ expect(2, args[2], 'string', 'nil')
 expect(3, args[3], 'string', 'nil')
 
 local repoSpec = args[1]
-local localPath = args[2] or shell.dir()
+local explicitPath = args[2]
 local branch = args[3] or 'main'
 
 -- Case-insensitive header lookup (CC doesn't normalize header casing for us,
@@ -182,7 +181,16 @@ if not provider then
     return
 end
 
-local localRepoPath = fs.combine(localPath, repo)
+local localRepoPath
+if explicitPath then
+    -- An explicit path is the clone destination itself, resolved against the
+    -- current shell directory when relative: running `gitclone ... here` from
+    -- /disk/ clones into /disk/here, not /disk/here/reponame.
+    localRepoPath = shell.resolve(explicitPath)
+else
+    -- With no explicit path, default to ./reponame in the current directory.
+    localRepoPath = fs.combine(shell.dir(), repo)
+end
 
 local function clone(files)
     local processes = {}
@@ -233,7 +241,7 @@ local function clone(files)
 end
 
 local function parseGitModules()
-    local gitModulesPath = fs.combine(localPath, repo, '.gitmodules')
+    local gitModulesPath = fs.combine(localRepoPath, '.gitmodules')
     if not fs.exists(gitModulesPath) then
         return {}
     end
@@ -251,7 +259,7 @@ local function parseGitModules()
 end
 
 local function cloneSubmodule(module)
-    local submodulePath = fs.combine(localPath, repo, module.path)
+    local submodulePath = fs.combine(localRepoPath, module.path)
     local submodule_name = fs.getName(module.path)
 
     -- Check if submodule already exists
