@@ -5,12 +5,12 @@ local expect = dofile("rom/modules/main/cc/expect.lua").expect
 local args = {...}
 
 expect(1, args[1], 'string')
-expect(2, args[2], 'string')
+expect(2, args[2], 'string', 'nil')
 expect(3, args[3], 'string', 'nil')
 
 local repoSpec = args[1]
-local branch = args[2]
-local localPath = args[3] or shell.dir()
+local localPath = args[2] or shell.dir()
+local branch = args[3] or 'main'
 
 -- Case-insensitive header lookup (CC doesn't normalize header casing for us,
 -- and GitLab's pagination headers show up as "X-Next-Page" etc.)
