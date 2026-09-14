@@ -4,6 +4,7 @@ return {
       entrypoint = "main.lua",
       files = {
         { src = "bin/",             dest = "bin/" },
+        { src = "lib/",             dest = "lib/" },
         { src = "bin/init_bin.lua", dest = "main.lua" },
       },
     },
@@ -30,7 +31,6 @@ return {
     presence_detector = {
       version = 1,
       files = {
-        { src = "common/log.lua",             dest = "lib/log.lua" },
         { src = "presence_detector/main.lua", dest = "main.lua" },
       },
     },
