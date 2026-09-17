@@ -8,6 +8,7 @@ local HOSTNAME = "controller"
 -- was copied straight onto the computer, or is sitting on a disk.
 local BASE_DIR   = fs.getDir(shell.getRunningProgram())
 local ROOT       = fs.combine(BASE_DIR, "files")
+local BIN_DIR    = fs.combine(ROOT, "bin")
 local ROLES_FILE = fs.combine(BASE_DIR, "roles.lua")
 local LOADER_DIR = fs.combine(BASE_DIR, "loader")
 
@@ -81,6 +82,10 @@ local function buildBundle(roles, role, workerId, label)
     entrypoint = def.entrypoint or "main.lua",
     loader     = loadLoader(),
   }
+end
+
+if not shell.path():find(BIN_DIR, 1, true) then
+  shell.setPath(shell.path() .. ":" .. BIN_DIR)
 end
 
 local roles = loadRoles()
