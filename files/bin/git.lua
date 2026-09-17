@@ -22,117 +22,223 @@ local function urlEncodeSlashes(path)
     return path:gsub('/', '%%2F')
 end
 
--- Per-provider logic: each provider knows how to list a repo's files
--- (as {path, url, binary, size}) and how to look up its default branch.
-local providers = {}
+-- Provider "kinds": one factory per REST API shape (GitHub-, GitLab-, and
+-- Forgejo/Gitea-style), each taking the host it should talk to and
+-- returning {host, getFiles, getDefaultBranch}. An "instance" below picks
+-- a kind and a host; this is what actually builds the api/raw URLs.
+local kinds = {}
 
-providers.github = {
-    getFiles = function(user, repo, branch)
-        local treeUrl = ('https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1')
-            :format(user, repo, branch)
+kinds.github = function(host)
+    -- github.com's API and raw-content domains are irregular (api.github.com
+    -- and raw.githubusercontent.com, not subdomains of github.com), so
+    -- that's special-cased. Any other host is assumed to be a GitHub
+    -- Enterprise Server instance without subdomain isolation, which uses
+    -- HOST/api/v3 and HOST/raw — see GHES docs if isolation is enabled on
+    -- your instance, since that moves raw content to raw.HOST instead.
+    local apiBase = (host == 'github.com') and 'api.github.com' or (host .. '/api/v3')
+    local rawBase = (host == 'github.com') and 'raw.githubusercontent.com' or (host .. '/raw')
 
-        local res, reason = http.get(treeUrl)
-        if not res then
-            return nil, reason
-        end
-        local tree = textutils.unserialiseJSON(res.readAll())
-        res.close()
-        if not tree or not tree.tree then
-            return nil, 'Failed to parse repository tree for ' .. user .. '/' .. repo
-        end
+    return {
+        host = host,
 
-        local files = {}
-        for _, entry in pairs(tree.tree) do
-            if entry.type ~= 'tree' and entry.type ~= 'commit' then
-                local url = ('https://raw.githubusercontent.com/%s/%s/%s/%s')
-                    :format(user, repo, branch, entry.path)
-                table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = entry.size })
-            end
-        end
-        return files
-    end,
-
-    getDefaultBranch = function(user, repo)
-        local res, reason = http.get(('https://api.github.com/repos/%s/%s'):format(user, repo))
-        if not res then
-            return nil, reason
-        end
-        local info = textutils.unserialiseJSON(res.readAll())
-        res.close()
-        if not info or not info.default_branch then
-            return nil, 'Repository info did not include a default branch'
-        end
-        return info.default_branch
-    end,
-}
-
-providers.gitlab = {
-    getFiles = function(user, repo, branch)
-        local projectId = urlEncodeSlashes(user .. '/' .. repo)
-        local files = {}
-        local page = 1
-
-        while true do
-            local treeUrl = ('https://gitlab.com/api/v4/projects/%s/repository/tree?recursive=true&per_page=100&page=%d&ref=%s')
-                :format(projectId, page, branch)
+        getFiles = function(user, repo, branch)
+            local treeUrl = ('https://%s/repos/%s/%s/git/trees/%s?recursive=1')
+                :format(apiBase, user, repo, branch)
 
             local res, reason = http.get(treeUrl)
             if not res then
                 return nil, reason
             end
-            local entries = textutils.unserialiseJSON(res.readAll())
-            local nextPage = getHeader(res.getResponseHeaders(), 'x-next-page')
+            local tree = textutils.unserialiseJSON(res.readAll())
             res.close()
-
-            if not entries or #entries == 0 then
-                break
+            if not tree or not tree.tree then
+                return nil, 'Failed to parse repository tree for ' .. user .. '/' .. repo
             end
 
-            for _, entry in ipairs(entries) do
+            local files = {}
+            for _, entry in pairs(tree.tree) do
                 if entry.type ~= 'tree' and entry.type ~= 'commit' then
-                    local url = ('https://gitlab.com/%s/%s/-/raw/%s/%s'):format(user, repo, branch, entry.path)
-                    -- NOTE: GitLab's tree API doesn't return file size (unlike
-                    -- GitHub's), so the existing-file skip check in clone()
-                    -- can't apply here — gitlab-sourced files are always
-                    -- re-downloaded even if a same-named local file exists.
-                    table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = nil })
+                    local url = ('https://%s/%s/%s/%s/%s')
+                        :format(rawBase, user, repo, branch, entry.path)
+                    table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = entry.size })
                 end
             end
+            return files
+        end,
 
-            if not nextPage or nextPage == '' then
-                break
+        getDefaultBranch = function(user, repo)
+            local res, reason = http.get(('https://%s/repos/%s/%s'):format(apiBase, user, repo))
+            if not res then
+                return nil, reason
             end
-            page = page + 1
-        end
+            local info = textutils.unserialiseJSON(res.readAll())
+            res.close()
+            if not info or not info.default_branch then
+                return nil, 'Repository info did not include a default branch'
+            end
+            return info.default_branch
+        end,
+    }
+end
 
-        return files
-    end,
+kinds.gitlab = function(host)
+    -- Self-hosted GitLab uses the exact same URL shape as gitlab.com, just
+    -- under a different host, so no special-casing is needed here.
+    return {
+        host = host,
 
-    getDefaultBranch = function(user, repo)
-        local projectId = urlEncodeSlashes(user .. '/' .. repo)
-        local res, reason = http.get(('https://gitlab.com/api/v4/projects/%s'):format(projectId))
-        if not res then
-            return nil, reason
-        end
-        local info = textutils.unserialiseJSON(res.readAll())
-        res.close()
-        if not info or not info.default_branch then
-            return nil, 'Repository info did not include a default branch'
-        end
-        return info.default_branch
-    end,
+        getFiles = function(user, repo, branch)
+            local projectId = urlEncodeSlashes(user .. '/' .. repo)
+            local files = {}
+            local page = 1
+
+            while true do
+                local treeUrl = ('https://%s/api/v4/projects/%s/repository/tree?recursive=true&per_page=100&page=%d&ref=%s')
+                    :format(host, projectId, page, branch)
+
+                local res, reason = http.get(treeUrl)
+                if not res then
+                    return nil, reason
+                end
+                local entries = textutils.unserialiseJSON(res.readAll())
+                local nextPage = getHeader(res.getResponseHeaders(), 'x-next-page')
+                res.close()
+
+                if not entries or #entries == 0 then
+                    break
+                end
+
+                for _, entry in ipairs(entries) do
+                    if entry.type ~= 'tree' and entry.type ~= 'commit' then
+                        local url = ('https://%s/%s/%s/-/raw/%s/%s'):format(host, user, repo, branch, entry.path)
+                        -- NOTE: GitLab's tree API doesn't return file size
+                        -- (unlike GitHub's), so the existing-file skip check
+                        -- in clone() can't apply here — gitlab-sourced files
+                        -- are always re-downloaded even if a same-named
+                        -- local file exists.
+                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = nil })
+                    end
+                end
+
+                if not nextPage or nextPage == '' then
+                    break
+                end
+                page = page + 1
+            end
+
+            return files
+        end,
+
+        getDefaultBranch = function(user, repo)
+            local projectId = urlEncodeSlashes(user .. '/' .. repo)
+            local res, reason = http.get(('https://%s/api/v4/projects/%s'):format(host, projectId))
+            if not res then
+                return nil, reason
+            end
+            local info = textutils.unserialiseJSON(res.readAll())
+            res.close()
+            if not info or not info.default_branch then
+                return nil, 'Repository info did not include a default branch'
+            end
+            return info.default_branch
+        end,
+    }
+end
+
+kinds.forgejo = function(host)
+    return {
+        host = host,
+
+        getFiles = function(user, repo, branch)
+            local files = {}
+            local page = 1
+
+            while true do
+                local treeUrl = ('https://%s/api/v1/repos/%s/%s/git/trees/%s?recursive=true&per_page=1000&page=%d')
+                    :format(host, user, repo, branch, page)
+
+                local res, reason = http.get(treeUrl)
+                if not res then
+                    return nil, reason
+                end
+                local body = textutils.unserialiseJSON(res.readAll())
+                res.close()
+
+                if not body or not body.tree then
+                    return nil, 'Failed to parse repository tree for ' .. user .. '/' .. repo
+                end
+
+                for _, entry in ipairs(body.tree) do
+                    if entry.type ~= 'tree' and entry.type ~= 'commit' then
+                        local url = ('https://%s/%s/%s/raw/branch/%s/%s'):format(host, user, repo, branch, entry.path)
+                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = entry.size })
+                    end
+                end
+
+                if not body.truncated then
+                    break
+                end
+                page = page + 1
+            end
+
+            return files
+        end,
+
+        getDefaultBranch = function(user, repo)
+            local res, reason = http.get(('https://%s/api/v1/repos/%s/%s'):format(host, user, repo))
+            if not res then
+                return nil, reason
+            end
+            local info = textutils.unserialiseJSON(res.readAll())
+            res.close()
+            if not info or not info.default_branch then
+                return nil, 'Repository info did not include a default branch'
+            end
+            return info.default_branch
+        end,
+    }
+end
+
+-- The single place to add, remove, or repoint a hosted instance. `kind`
+-- selects which URL shape to build (a key in `kinds` above), `host` is the
+-- instance's hostname. The table key is what a repo spec's provider prefix
+-- matches against (e.g. "codeberg:user/repo" or "git.gay:user/repo") — it
+-- doesn't have to equal `host`, which is what lets the short "codeberg"
+-- stand in for the longer "codeberg.org".
+local instances = {
+    github = { kind = 'github', host = 'github.com' },
+    gitlab = { kind = 'gitlab', host = 'gitlab.com' },
+    codeberg = { kind = 'forgejo', host = 'codeberg.org' },
+    ['git.gay'] = { kind = 'forgejo', host = 'git.gay' },
 }
+
+-- Per-provider logic: each provider knows how to list a repo's files
+-- (as {path, url, binary, size}) and how to look up its default branch.
+-- Built from `instances` + `kinds` above, keyed the same way as `instances`.
+local providers = {}
+for name, instance in pairs(instances) do
+    providers[name] = kinds[instance.kind](instance.host)
+end
 
 -- Accepts "gitlab:user/repo/branch", "github:user/repo/branch", or bare
 -- "user/repo[/branch]" (provider defaults to github, branch defaults to
 -- main). This is also the exact format stored in the .git marker file, so
 -- it doubles as that format's parser.
+local function knownProviderNames()
+    local names = {}
+    for name in pairs(providers) do
+        table.insert(names, name)
+    end
+    table.sort(names)
+    return table.concat(names, ', ')
+end
+
 local function parseRepoSpec(spec)
-    local provider, rest = spec:match('^(%a+):(.+)$')
+    local provider, rest = spec:match('^([%w.%-]+):(.+)$')
     if provider then
         provider = provider:lower()
         if not providers[provider] then
-            return nil, nil, nil, nil, 'Unknown provider "' .. provider .. '" (expected github or gitlab)'
+            return nil, nil, nil, nil, 'Unknown provider "' .. provider .. '" (expected one of: ' .. knownProviderNames() .. ')'
         end
     else
         provider = 'github'
@@ -153,9 +259,22 @@ local function parseRepoSpec(spec)
     return provider, user, repo, branch
 end
 
--- Same idea, but for .gitmodules URLs (https://host/user/repo(.git) or
--- git@host:user/repo(.git)) rather than a "provider:user/repo/branch" spec.
--- .gitmodules never specifies a branch, so callers fall back to
+-- Matches a submodule's git host against each provider's configured host
+-- (exact match, not a fuzzy substring check — a host that merely contains
+-- "gitlab" shouldn't be assumed to speak GitLab's API). Falls back to
+-- github for anything unrecognized, since that's by far the most common case.
+local function detectProviderFromHost(host)
+    for name, p in pairs(providers) do
+        if p.host == host then
+            return name
+        end
+    end
+    return 'github'
+end
+
+-- Same idea as parseRepoSpec, but for .gitmodules URLs (https://host/user/repo(.git)
+-- or git@host:user/repo(.git)) rather than a "provider:user/repo/branch"
+-- spec. .gitmodules never specifies a branch, so callers fall back to
 -- providers[x].getDefaultBranch() for these.
 local function parseSubmoduleUrl(url)
     local host, path = url:match('^https?://([^/]+)/(.+)$')
@@ -168,7 +287,7 @@ local function parseSubmoduleUrl(url)
 
     path = path:gsub('%.git$', '')
 
-    local provider = host:find('gitlab') and 'gitlab' or 'github'
+    local provider = detectProviderFromHost(host)
 
     local user, repo = path:match('^(.+)/([^/]+)$')
     if not user or not repo then
