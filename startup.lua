@@ -63,7 +63,8 @@ local function buildBundle(roles, role, workerId, label)
     if not fs.exists(path) then
       return nil, "missing source: " .. entry.src
     end
-    collectFiles(path, entry.dest, files)
+    local dest = entry.dest and entry.dest or entry.src
+    collectFiles(path, dest, files)
   end
 
   local config = def.config
@@ -127,4 +128,3 @@ while true do
     print("[serve] loader -> #" .. senderId)
   end
 end
-

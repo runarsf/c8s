@@ -193,7 +193,7 @@ local function render()
   term.setTextColor(colours.grey)
   for y = l.listY, l.listY + l.listH - 1 do
     term.setCursorPos(l.divX, y)
-    term.write("\179")
+    term.write("|") -- \179
   end
 
   -- Program list
