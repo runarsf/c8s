@@ -13,6 +13,7 @@ return {
         entrypoint = "bin/ntfy-consume.lua",
         files = {
             { src = "bin/ntfy-consume.lua" },
+            { src = "bin/toggle-night-vision.lua" },
         },
     },
 
