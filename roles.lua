@@ -1,9 +1,9 @@
 return {
     workstation = {
         version = 1,
-        entrypoint = "main.lua",
+        entrypoint = "bin/init-bin.lua",
         files = {
-            { src = "bin/init-bin.lua", dest = "main.lua" },
+            -- { src = "bin/init-bin.lua", dest = "main.lua" },
             { src = "bin/" },
             { src = "lib/" },
         },
@@ -29,16 +29,15 @@ return {
     },
 
     outer_wilds = {
-        version = 1,
-        entrypoint = "bin/run-many.lua bin/ntfy-trigger.lua",
+        version = 2,
+        entrypoint = "bin/ntfy-trigger.lua",
         files = {
-            { src = "bin/run-many.lua" },
             { src = "bin/ntfy-trigger.lua" }
         };
     };
 
     presence_detector = {
-        version = 1,
+        version = 2,
         files = {
             { src = "nodes/presence_detector/main.lua", dest = "main.lua" },
         },
