@@ -32,8 +32,8 @@ return {
         version = 1,
         entrypoint = "bin/run-many.lua bin/ntfy-trigger.lua",
         files = {
-            { src = "bin/run-many.lua" }
-            { src = "bin/ntfy-trigger.lua" },
+            { src = "bin/run-many.lua" },
+            { src = "bin/ntfy-trigger.lua" }
         };
     };
 
