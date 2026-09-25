@@ -3,9 +3,17 @@ return {
         version = 1,
         entrypoint = "bin/init-bin.lua",
         files = {
-            -- { src = "bin/init-bin.lua", dest = "main.lua" },
             { src = "bin/" },
             { src = "lib/" },
+        },
+    },
+
+    smart_glasses = {
+        version = 1,
+        entrypoint = "bin/run-many.lua app/bin/ntfy-consume.lua",
+        files = {
+            { src = "bin/run-many.lua" },
+            { src = "bin/ntfy-consume.lua" },
         },
     },
 
@@ -29,15 +37,15 @@ return {
     },
 
     outer_wilds = {
-        version = 2,
-        entrypoint = "bin/ntfy-trigger.lua",
+        version = 3,
+        entrypoint = "bin/ntfy-emit.lua",
         files = {
-            { src = "bin/ntfy-trigger.lua" }
+            { src = "bin/ntfy-emit.lua" }
         };
     };
 
     presence_detector = {
-        version = 2,
+        version = 3,
         files = {
             { src = "nodes/presence_detector/main.lua", dest = "main.lua" },
         },
