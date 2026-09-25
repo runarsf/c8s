@@ -9,10 +9,9 @@ return {
     },
 
     smart_glasses = {
-        version = 1,
-        entrypoint = "bin/run-many.lua app/bin/ntfy-consume.lua",
+        version = 2,
+        entrypoint = "bin/ntfy-consume.lua",
         files = {
-            { src = "bin/run-many.lua" },
             { src = "bin/ntfy-consume.lua" },
         },
     },
