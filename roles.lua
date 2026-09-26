@@ -60,6 +60,22 @@ return {
         };
     };
 
+    -- Mekanism induction matrix watcher. Thresholds are fractions, so
+    -- 0.5 is 50%; edit them here and the worker picks them up next sync.
+    power_monitor = {
+        version = 1,
+        files = {
+            { src = "nodes/power_monitor/main.lua", dest = "main.lua" },
+            { src = "bin/alert.lua" },
+        },
+        config = {
+            peripheral  = "inductionPort",
+            warning_at  = 0.5,
+            critical_at = 0.2,
+            interval    = 30,
+        },
+    },
+
     presence_detector = {
         version = 3,
         files = {

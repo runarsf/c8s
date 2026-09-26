@@ -112,6 +112,18 @@ when nothing is open, and `ttl` means the event clears itself a minute
 after this script stops saying it - whether the battery recovered or the
 computer got unloaded.
 
+`power_monitor` is that pattern as a real role
+(`files/nodes/power_monitor/main.lua`): it watches a Mekanism induction
+matrix, raises `warning` under 50% and `critical` under 20% on one event
+id, and also reports when it can't see the matrix at all. Its thresholds
+live in `roles.lua` rather than on the worker, so tuning them is an edit
+on the controller:
+
+    power_monitor = {
+        config = { peripheral = "inductionPort", warning_at = 0.5,
+                   critical_at = 0.2, interval = 30 },
+        ...
+
 Two things to get right:
 
 - **Always pass a stable `id`.** Without one the id is derived from the
