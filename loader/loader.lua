@@ -118,6 +118,26 @@ local function haveLoader(loader)
      and fs.exists("/boot/loader.lua")
 end
 
+-- Settings the controller wants every machine to have. Declarative rather
+-- than one-shot: whatever differs is set on every check-in, so a value
+-- edited here reaches a machine without anyone visiting it, and a machine
+-- that drifted is pulled back. Only writes when something actually
+-- changed, since this runs every 10-60s for the life of the computer.
+local function applySettings(values)
+  if type(values) ~= "table" then return false end
+  local changed = {}
+  for name, value in pairs(values) do
+    if settings.get(name) ~= value then
+      settings.set(name, value)
+      changed[#changed + 1] = name
+    end
+  end
+  if #changed == 0 then return false end
+  settings.save()
+  print("[sync] set " .. table.concat(changed, ", "))
+  return true
+end
+
 -- Fetches once and applies whatever changed. Returns (true, result) on
 -- a successful check-in, or (false, errorMessage) if unreachable.
 local function sync(r)
@@ -125,6 +145,9 @@ local function sync(r)
   if not bundle then return false, err end
 
   local result = { roleChanged = false, loaderChanged = false }
+
+  -- Before the role runs, so its first boot already sees them.
+  applySettings(bundle.settings)
 
   if not haveRole(bundle) then
     writeRole(bundle)

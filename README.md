@@ -5,6 +5,7 @@
     controller/
       startup.lua           - the code-serving daemon
       roles.lua             - role -> file list + per-worker config
+      settings.lua          - CC settings every worker gets
       files/                 - role source
       loader/
         loader.lua              - loader source - edit to push an update
@@ -55,6 +56,13 @@
   unreachable, resetting once it answers) for as long as the computer
   runs. A worker that's never synced just waits rather than failing.
 - Per-worker config (e.g. `gps_node`'s coordinates) is resolved by labels.
+- `settings.lua` is a baseline of CC settings (motd off, hidden files
+  shown, ...) served with every bundle and applied by the loader on each
+  check-in. It is declarative: whatever differs gets set, so an edit there
+  reaches every machine within a check-in, and `set`ting one of those
+  values on a worker is undone at its next sync. A role can override a
+  value for its own machines with a `settings` table in `roles.lua`.
+  Dropping an entry stops enforcing it rather than restoring the old value.
 - A role with no entrypoint file (`main.lua` if not overwritten) is **provision-only**
   (synced once at boot, then falls through to a normal interactive shell).
 - A role can also define `dest = "setup.lua"`, which will run once via `shell.run`

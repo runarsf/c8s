@@ -6,11 +6,12 @@ local HOSTNAME = "controller"
 -- Resolve every path relative to wherever this script actually lives,
 -- not the computer's root, so it works unmodified whether controller/
 -- was copied straight onto the computer, or is sitting on a disk.
-local BASE_DIR   = fs.getDir(shell.getRunningProgram())
-local ROOT       = fs.combine(BASE_DIR, "files")
-local BIN_DIR    = fs.combine(ROOT, "bin")
-local ROLES_FILE = fs.combine(BASE_DIR, "roles.lua")
-local LOADER_DIR = fs.combine(BASE_DIR, "loader")
+local BASE_DIR      = fs.getDir(shell.getRunningProgram())
+local ROOT          = fs.combine(BASE_DIR, "files")
+local BIN_DIR       = fs.combine(ROOT, "bin")
+local ROLES_FILE    = fs.combine(BASE_DIR, "roles.lua")
+local SETTINGS_FILE = fs.combine(BASE_DIR, "settings.lua")
+local LOADER_DIR    = fs.combine(BASE_DIR, "loader")
 
 local function loadRoles()
   local ok, roles = pcall(dofile, ROLES_FILE)
@@ -18,6 +19,18 @@ local function loadRoles()
     error("Could not load " .. ROLES_FILE .. ": " .. tostring(roles))
   end
   return roles
+end
+
+-- Settings handed to every worker regardless of role. Missing or broken
+-- is not fatal: workers just don't get a baseline.
+local function loadSettings()
+  if not fs.exists(SETTINGS_FILE) then return nil end
+  local ok, values = pcall(dofile, SETTINGS_FILE)
+  if not ok or type(values) ~= "table" then
+    print("[warn] could not load " .. SETTINGS_FILE .. " - skipping")
+    return nil
+  end
+  return values
 end
 
 local function loadLoader()
@@ -74,6 +87,12 @@ local function buildBundle(roles, role, workerId, label)
     config = resolved
   end
 
+  local common = loadSettings()
+  if type(def.settings) == "table" then
+    common = common or {}
+    for name, value in pairs(def.settings) do common[name] = value end
+  end
+
   return {
     op         = "bundle",
     role       = role,
@@ -81,6 +100,7 @@ local function buildBundle(roles, role, workerId, label)
     files      = files,
     config     = config,
     entrypoint = def.entrypoint or "main.lua",
+    settings   = common,
     loader     = loadLoader(),
   }
 end
