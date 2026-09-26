@@ -9,7 +9,7 @@ return {
     },
 
     smart_glasses = {
-        version = 5,
+        version = 6,
         -- run-many supervises all three; --focus hands the screen to the
         -- monitoring client, and ctrl+tab gets back to the program list.
         entrypoint = {

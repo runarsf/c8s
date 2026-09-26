@@ -51,18 +51,43 @@ local function openModem()
   rednet.open(peripheral.getName(modem))
 end
 
+-- Extensions whose bytes have to survive the trip exactly. Read in text
+-- mode - which is what everything used to get - a dfpwm file comes back
+-- altered and plays as static, so these are read as bytes and carried as
+-- hex. Add an extension here and it travels safely too.
+local BINARY_EXTENSIONS = { dfpwm = true }
+
+local function isBinary(path)
+  local extension = path:match("%.(%w+)$")
+  return extension ~= nil and BINARY_EXTENSIONS[extension:lower()] == true
+end
+
+-- Hex rather than base64: twice the size, but a quarter of the code and
+-- nothing about it can be subtly wrong.
+local function toHex(data)
+  return (data:gsub(".", function(byte) return ("%02x"):format(byte:byte()) end))
+end
+
 -- Adds one src (a file or a whole directory tree) into a flat
 -- dest -> content table. For a directory, dest is used as the prefix
--- for everything found inside it, at any depth.
-local function collectFiles(root, dest, out)
+-- for everything found inside it, at any depth. Anything carried encoded
+-- is noted in `encodings`, keyed by the same dest.
+local function collectFiles(root, dest, out, encodings)
   if fs.isDir(root) then
     for _, name in ipairs(fs.list(root)) do
-      collectFiles(fs.combine(root, name), fs.combine(dest, name), out)
+      collectFiles(fs.combine(root, name), fs.combine(dest, name), out, encodings)
     end
   else
-    local f = fs.open(root, "r")
-    out[dest] = f.readAll()
+    local binary = isBinary(root)
+    local f = fs.open(root, binary and "rb" or "r")
+    local content = f.readAll() or ""
     f.close()
+    if binary then
+      out[dest] = toHex(content)
+      encodings[dest] = "hex"
+    else
+      out[dest] = content
+    end
   end
 end
 
@@ -70,14 +95,14 @@ local function buildBundle(roles, role, workerId, label)
   local def = roles[role]
   if not def then return nil, "unknown role" end
 
-  local files = {}
+  local files, encodings = {}, {}
   for _, entry in ipairs(def.files) do
     local path = fs.combine(ROOT, entry.src)
     if not fs.exists(path) then
       return nil, "missing source: " .. entry.src
     end
     local dest = entry.dest and entry.dest or entry.src
-    collectFiles(path, dest, files)
+    collectFiles(path, dest, files, encodings)
   end
 
   local config = def.config
@@ -98,6 +123,7 @@ local function buildBundle(roles, role, workerId, label)
     role       = role,
     version    = def.version,
     files      = files,
+    encodings  = encodings,
     config     = config,
     entrypoint = def.entrypoint or "main.lua",
     settings   = common,

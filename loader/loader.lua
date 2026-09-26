@@ -48,13 +48,22 @@ local function fetch(r)
   return msg
 end
 
+local function fromHex(data)
+  return (data:gsub("%x%x", function(pair) return string.char(tonumber(pair, 16)) end))
+end
+
 local function writeRole(bundle)
+  local encodings = bundle.encodings or {}
   for path, content in pairs(bundle.files) do
     local full = fs.combine(APP_DIR, path)
     local dir = fs.getDir(full)
     if dir ~= "" and not fs.exists(dir) then fs.makeDir(dir) end
-    local f = fs.open(full, "w")
-    f.write(content)
+    -- Binary files (dfpwm and anything else the controller marks) arrive as
+    -- hex and are written as bytes. Writing them in text mode is what used
+    -- to alter them just enough to play as static.
+    local binary = encodings[path] == "hex"
+    local f = fs.open(full, binary and "wb" or "w")
+    f.write(binary and fromHex(content) or content)
     f.close()
   end
   local f = fs.open(fs.combine(APP_DIR, "_config.lua"), "w")

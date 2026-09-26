@@ -171,7 +171,29 @@ Per-client options, set with `set`:
     set monitoring.topics energy,security -- subscribe to topics (default: all)
     set monitoring.hud_lines 6            -- HUD entries before "+N more"
     set monitoring.snooze_minutes 10
+    set monitoring.volume 1               -- 0 to 3
     set monitoring.sounds.critical minecraft:block.bell.use
+
+A sound is either a Minecraft sound event (the default) or a `.dfpwm` file,
+told apart by the extension. To use your own:
+
+1. Put the file in `files/sounds/` on the controller, e.g.
+   `files/sounds/critical.dfpwm`.
+2. Add `{ src = "sounds/" }` to the `smart_glasses` role's files and bump its
+   version. (Don't add the line before the directory exists - a missing
+   source makes the whole bundle fail to build.)
+3. On the glasses: `set monitoring.sounds.critical sounds/critical.dfpwm`.
+   A relative path is resolved against `/app`, not the working directory.
+
+Files with a `.dfpwm` extension are carried through the bundle as hex and
+written as bytes. Everything else is sent as text, which is what used to
+happen to dfpwm too - it arrived subtly altered and played as static. Hex
+doubles the size on the wire, so keep alert sounds short; add another
+extension to `BINARY_EXTENSIONS` in `startup.lua` if something else needs
+the same treatment.
+
+The client streams the file a chunk at a time from its own event loop, so a
+long sound doesn't stop it noticing events while it plays.
 
 ## Gotchas
 

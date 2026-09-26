@@ -13,8 +13,14 @@
 -- is local (it only hides a line on this player's HUD).
 
 local HERE = fs.getDir(shell.getRunningProgram())
+local APP  = fs.getDir(HERE)
 local mon  = dofile(fs.combine(HERE, "protocol.lua"))
 local hud  = dofile(fs.combine(HERE, "hud.lua"))
+
+-- dofile rather than require: the same reason bin/git.lua does it, one less
+-- thing that depends on how this program was started.
+local DFPWM_MODULE = "rom/modules/main/cc/audio/dfpwm.lua"
+local CHUNK = 16 * 1024
 
 local POLL = 15  -- seconds between sync checks
 local TICK = 1   -- seconds between redraws (ages, snooze expiry)
@@ -44,7 +50,8 @@ settings.define("monitoring.volume", {
 })
 for _, severity in ipairs(mon.SEVERITIES) do
     settings.define("monitoring.sounds." .. severity, {
-        description = "Minecraft sound event played for " .. severity .. " events",
+        description = "Sound for " .. severity .. " events: a Minecraft sound "
+            .. "event, or a .dfpwm file (relative to /app)",
         default = DEFAULT_SOUND[severity], type = "string",
     })
 end
@@ -90,12 +97,73 @@ end
 
 -- Sound --------------------------------------------------------------------
 
+local dfpwm     -- loaded on first use
+local playing   -- { speaker, file, decoder, pending }
+
+local function stopSound()
+    if not playing then return end
+    pcall(playing.file.close)
+    playing = nil
+end
+
+-- Feeds the speaker one chunk at a time, driven by the main loop's
+-- speaker_audio_empty events. Waiting for those inside a play function
+-- instead - as the first version of this script did - throws away every
+-- other event that arrives while the sound lasts, deltas included.
+local function pump()
+    if not playing then return end
+
+    if playing.pending then
+        if not playing.speaker.playAudio(playing.pending, volume()) then return end
+        playing.pending = nil
+    end
+
+    while true do
+        local chunk = playing.file.read(CHUNK)
+        if not chunk then return stopSound() end
+        local buffer = playing.decoder(chunk)
+        if not playing.speaker.playAudio(buffer, volume()) then
+            playing.pending = buffer
+            return
+        end
+    end
+end
+
+-- A speaker unplugged mid-sound must not take the client down with it.
+local function feed()
+    if not pcall(pump) then stopSound() end
+end
+
+local function playFile(speaker, path)
+    if dfpwm == nil then
+        dfpwm = fs.exists(DFPWM_MODULE) and dofile(DFPWM_MODULE) or false
+    end
+    if not dfpwm then return end
+
+    local file = fs.open(path, "rb")
+    if not file then return end
+
+    stopSound()
+    playing = { speaker = speaker, file = file, decoder = dfpwm.make_decoder() }
+    feed()
+end
+
 local function alert(severity)
     local speaker = peripheral.find("speaker")
     if not speaker then return end
+
     local sound = mon.option("monitoring.sounds." .. severity, DEFAULT_SOUND[severity])()
     if type(sound) ~= "string" or sound == "" then return end
-    pcall(speaker.playSound, sound, volume(), PITCH[severity] or 1)
+
+    -- A .dfpwm name is a file to stream, resolved against /app so it does
+    -- not depend on where the program was started from. Anything else is a
+    -- Minecraft sound event.
+    if sound:lower():match("%.dfpwm$") then
+        local path = sound:sub(1, 1) == "/" and sound or fs.combine(APP, sound)
+        if fs.exists(path) then playFile(speaker, path) end
+    else
+        pcall(speaker.playSound, sound, volume(), PITCH[severity] or 1)
+    end
 end
 
 -- Rendering ----------------------------------------------------------------
@@ -317,6 +385,8 @@ local function run()
         if name == "rednet_message" and event[4] == mon.PROTOCOL then
             handle(event[2], event[3])
             status = nil
+        elseif name == "speaker_audio_empty" then
+            feed()
         elseif name == "timer" and event[2] == ticker then
             ticker = os.startTimer(TICK)
             if mon.now() - lastSync >= POLL * 1000 then
@@ -345,6 +415,7 @@ local function run()
 end
 
 local ok, err = pcall(run)
+stopSound()
 hud.clear()
 term.setBackgroundColor(colors.black)
 term.setTextColor(colors.white)
