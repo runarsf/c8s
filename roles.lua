@@ -9,7 +9,15 @@ return {
     },
 
     smart_glasses = {
-        version = 6,
+        version = 7,
+        -- Applied by the loader on every check-in, so the sounds are set
+        -- centrally rather than on each pair of glasses. A file that isn't
+        -- there falls back to the built-in Minecraft sound.
+        settings = {
+            ["monitoring.sounds.info"]     = "sounds/info.dfpwm",
+            ["monitoring.sounds.warning"]  = "sounds/warning.dfpwm",
+            ["monitoring.sounds.critical"] = "sounds/critical.dfpwm",
+        },
         -- run-many supervises all three; --focus hands the screen to the
         -- monitoring client, and ctrl+tab gets back to the program list.
         entrypoint = {
@@ -27,6 +35,8 @@ return {
             { src = "monitoring/protocol.lua" },
             { src = "monitoring/hud.lua" },
             { src = "monitoring/client.lua" },
+            -- Alert sounds: files/sounds/<severity>.dfpwm on the controller.
+            { src = "sounds/" },
         },
     },
 

@@ -160,10 +160,17 @@ local function alert(severity)
     -- Minecraft sound event.
     if sound:lower():match("%.dfpwm$") then
         local path = sound:sub(1, 1) == "/" and sound or fs.combine(APP, sound)
-        if fs.exists(path) then playFile(speaker, path) end
-    else
-        pcall(speaker.playSound, sound, volume(), PITCH[severity] or 1)
+        if fs.exists(path) then
+            return playFile(speaker, path)
+        end
+        -- A configured sound file that isn't there must not mean silence:
+        -- an alert nobody hears is worse than one that sounds wrong. Say so
+        -- on the footer and fall back to the built-in.
+        status = " no sound file at " .. path
+        sound = DEFAULT_SOUND[severity]
     end
+
+    pcall(speaker.playSound, sound, volume(), PITCH[severity] or 1)
 end
 
 -- Rendering ----------------------------------------------------------------

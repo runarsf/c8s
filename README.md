@@ -174,16 +174,20 @@ Per-client options, set with `set`:
     set monitoring.volume 1               -- 0 to 3
     set monitoring.sounds.critical minecraft:block.bell.use
 
-A sound is either a Minecraft sound event (the default) or a `.dfpwm` file,
-told apart by the extension. To use your own:
+A sound is either a Minecraft sound event or a `.dfpwm` file, told apart by
+the extension. The `smart_glasses` role is already set up for the latter: it
+ships `files/sounds/` and its `settings` point each severity at
+`sounds/<severity>.dfpwm`, so the sounds are configured centrally and not on
+each pair of glasses. Put `info.dfpwm`, `warning.dfpwm` and
+`critical.dfpwm` in `files/sounds/` on the controller.
 
-1. Put the file in `files/sounds/` on the controller, e.g.
-   `files/sounds/critical.dfpwm`.
-2. Add `{ src = "sounds/" }` to the `smart_glasses` role's files and bump its
-   version. (Don't add the line before the directory exists - a missing
-   source makes the whole bundle fail to build.)
-3. On the glasses: `set monitoring.sounds.critical sounds/critical.dfpwm`.
-   A relative path is resolved against `/app`, not the working directory.
+**`files/sounds/` has to exist**, or every `smart_glasses` sync fails with
+`missing source: sounds/` and the glasses keep running their cached code. A
+file that is missing individually is fine: that severity falls back to its
+built-in Minecraft sound and the client says so on its footer, because an
+alert nobody hears is worse than one that sounds wrong.
+
+A relative sound path is resolved against `/app`, not the working directory.
 
 Files with a `.dfpwm` extension are carried through the bundle as hex and
 written as bytes. Everything else is sent as text, which is what used to
