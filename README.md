@@ -65,6 +65,11 @@
   Dropping an entry stops enforcing it rather than restoring the old value.
 - A role with no entrypoint file (`main.lua` if not overwritten) is **provision-only**
   (synced once at boot, then falls through to a normal interactive shell).
+  A role that *does* name an entrypoint which isn't there says so at boot.
+- An entrypoint can take arguments, written as a list of words:
+  `entrypoint = { "bin/run-many.lua", "--restart", "app/bin/a.lua" }`.
+  Only the first word is a path. Writing the whole command as one string
+  works too, but then no argument can contain a space.
 - A role can also define `dest = "setup.lua"`, which will run once via `shell.run`
   right after every sync regardless.
 

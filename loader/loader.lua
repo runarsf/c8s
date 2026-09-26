@@ -66,18 +66,42 @@ local function writeRole(bundle)
   settings.set("sync.role_version", bundle.version)
 end
 
--- What to check for / run as this role's service entry point. Reads
--- the marker writeRole() leaves rather than trusting a live bundle,
--- since a boot can be running purely off a previous sync's cache.
-local function entrypointName()
+-- What to check for / run as this role's service entry point, as a list
+-- of words: the program followed by any arguments. Reads the marker
+-- writeRole() leaves rather than trusting a live bundle, since a boot can
+-- be running purely off a previous sync's cache.
+--
+-- A role may write the entrypoint as a list ({ "bin/run-many.lua", "-r",
+-- "app/bin/a.lua" }) or as one string. Only the first word is a path:
+-- combining the whole line with APP_DIR was the reason an entrypoint with
+-- arguments used to do nothing at all - there is no file called
+-- "/app/bin/run-many.lua app/bin/ntfy-consume.lua", so the check below
+-- found nothing to run and the loader fell through to the shell without
+-- a word of complaint.
+local function entrypoint()
+  local value
   local path = fs.combine(APP_DIR, "_entrypoint.lua")
   if fs.exists(path) then
-    local ok, name = pcall(dofile, path)
-    if ok and type(name) == "string" and name ~= "" then
-      return name
-    end
+    local ok, loaded = pcall(dofile, path)
+    if ok then value = loaded end
   end
-  return "main.lua"
+
+  -- `explicit` distinguishes "this role declared an entrypoint" from
+  -- "nothing was declared, so try main.lua": a provision-only role having
+  -- no main.lua is normal, a declared entrypoint that isn't there is not.
+  local words = {}
+  if type(value) == "table" then
+    for _, word in ipairs(value) do
+      if type(word) == "string" and word ~= "" then words[#words + 1] = word end
+    end
+  elseif type(value) == "string" then
+    for word in value:gmatch("%S+") do words[#words + 1] = word end
+  end
+  local explicit = #words > 0
+  if not explicit then words = { "main.lua" } end
+
+  words[1] = fs.combine(APP_DIR, words[1])
+  return words, explicit
 end
 
 local function writeLoader(loader)
@@ -220,7 +244,8 @@ end
 -- pushed from the controller is picked up on watch()'s own schedule,
 -- independent of whatever this backoff is currently doing.
 local function runRole()
-  local entry = fs.combine(APP_DIR, entrypointName())
+  local command = entrypoint()
+  local entry = command[1]
   local warned = false
   while not fs.exists(entry) do
     if not warned then
@@ -233,7 +258,10 @@ local function runRole()
   local wait = ROLE_RETRY_MIN
   while true do
     local startedAt = os.epoch("utc")
-    local ok = shell.run(entry)
+    -- shell.execute does not re-tokenise, so an argument may contain a
+    -- space (run-many "sleep 5"); shell.run is the older fallback.
+    local run = shell.execute or shell.run
+    local ok = run(table.unpack(command))
     if ok then return end
     if os.epoch("utc") - startedAt > ROLE_RETRY_MAX * 1000 then
       wait = ROLE_RETRY_MIN
@@ -264,7 +292,11 @@ local r = role()
 initialSync(r)
 runSetup()
 
-if fs.exists(fs.combine(APP_DIR, entrypointName())) then
+local command, explicit = entrypoint()
+if fs.exists(command[1]) then
   parallel.waitForAny(runRole, function() watch(r) end)
+elseif explicit then
+  -- Silence here is what made a broken entrypoint so hard to spot.
+  print("[boot] entrypoint " .. command[1] .. " is missing - dropping to the shell")
 end
 
