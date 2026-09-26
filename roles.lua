@@ -9,7 +9,7 @@ return {
     },
 
     smart_glasses = {
-        version = 7,
+        version = 8,
         -- Applied by the loader on every check-in, so the sounds are set
         -- centrally rather than on each pair of glasses. A file that isn't
         -- there falls back to the built-in Minecraft sound.

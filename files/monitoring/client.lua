@@ -17,9 +17,6 @@ local APP  = fs.getDir(HERE)
 local mon  = dofile(fs.combine(HERE, "protocol.lua"))
 local hud  = dofile(fs.combine(HERE, "hud.lua"))
 
--- dofile rather than require: the same reason bin/git.lua does it, one less
--- thing that depends on how this program was started.
-local DFPWM_MODULE = "rom/modules/main/cc/audio/dfpwm.lua"
 local CHUNK = 16 * 1024
 
 local POLL = 15  -- seconds between sync checks
@@ -99,6 +96,7 @@ end
 
 local dfpwm     -- loaded on first use
 local playing   -- { speaker, file, decoder, pending }
+local queued    -- true once a buffer has actually reached the speaker
 
 local function stopSound()
     if not playing then return end
@@ -116,6 +114,7 @@ local function pump()
     if playing.pending then
         if not playing.speaker.playAudio(playing.pending, volume()) then return end
         playing.pending = nil
+        queued = true
     end
 
     while true do
@@ -126,6 +125,7 @@ local function pump()
             playing.pending = buffer
             return
         end
+        queued = true
     end
 end
 
@@ -134,18 +134,36 @@ local function feed()
     if not pcall(pump) then stopSound() end
 end
 
+-- True once a sound is actually playing, so the caller can fall back to a
+-- built-in one when it isn't.
+--
+-- The decoder has to come from `require`, not dofile: dofile hands the chunk
+-- the bare globals, and the rom's dfpwm module requires cc.expect itself, so
+-- loading it that way fails with "attempt to call global 'require'".
 local function playFile(speaker, path)
     if dfpwm == nil then
-        dfpwm = fs.exists(DFPWM_MODULE) and dofile(DFPWM_MODULE) or false
+        local ok, module = pcall(require, "cc.audio.dfpwm")
+        dfpwm = ok and type(module) == "table" and module or false
     end
-    if not dfpwm then return end
+    if not dfpwm then return false end
 
     local file = fs.open(path, "rb")
-    if not file then return end
+    if not file then return false end
+
+    local made, decoder = pcall(dfpwm.make_decoder)
+    if not made then
+        pcall(file.close)
+        return false
+    end
 
     stopSound()
-    playing = { speaker = speaker, file = file, decoder = dfpwm.make_decoder() }
+    -- A short sound finishes inside this feed() and leaves `playing` nil, so
+    -- what decides success is whether any audio reached the speaker - not
+    -- whether some is still queued.
+    queued = false
+    playing = { speaker = speaker, file = file, decoder = decoder }
     feed()
+    return queued
 end
 
 local function alert(severity)
@@ -160,13 +178,11 @@ local function alert(severity)
     -- Minecraft sound event.
     if sound:lower():match("%.dfpwm$") then
         local path = sound:sub(1, 1) == "/" and sound or fs.combine(APP, sound)
-        if fs.exists(path) then
-            return playFile(speaker, path)
-        end
-        -- A configured sound file that isn't there must not mean silence:
-        -- an alert nobody hears is worse than one that sounds wrong. Say so
-        -- on the footer and fall back to the built-in.
-        status = " no sound file at " .. path
+        if playFile(speaker, path) then return end
+        -- A sound that won't play - no such file, no decoder, bad data -
+        -- must not mean silence: an alert nobody hears is worse than one
+        -- that sounds wrong. Say so on the footer and use the built-in.
+        status = " could not play " .. path
         sound = DEFAULT_SOUND[severity]
     end
 
