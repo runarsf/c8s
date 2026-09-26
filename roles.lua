@@ -9,10 +9,11 @@ return {
     },
 
     smart_glasses = {
-        version = 3,
+        version = 4,
         entrypoint = "bin/glasses.lua",
         files = {
             { src = "bin/glasses.lua" },
+            { src = "lib/tasks.lua" },
             { src = "bin/ntfy-consume.lua" },
             { src = "bin/toggle-night-vision.lua" },
             { src = "bin/alert.lua" },

@@ -91,6 +91,13 @@ whatever raised it, or by hand from the list UI.
   (`s`) is local: it hides a line on your own HUD for
   `monitoring.snooze_minutes` and nobody else is affected.
 
+`bin/glasses.lua` is what the role actually starts: it runs the client on
+the real terminal with the night-vision toggle and the ntfy listener on
+terminals of their own, restarting any that fall over. It shares its
+scheduler with `bin/run-many.lua` (`lib/tasks.lua`) but has no interface of
+its own - run-many owns the keyboard for its program list, which would
+fight the client's own arrow keys.
+
 Raise and resolve with `bin/alert.lua`, which is both a command and a
 one-file library, so an emitting role ships it and nothing else:
 

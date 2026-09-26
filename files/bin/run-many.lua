@@ -3,7 +3,16 @@
 -- the right).
 --
 -- Usage:
---   run-many <command> [<command> ...]
+--   run-many [-r|--restart] <command> [<command> ...]
+--
+-- With --restart, a command that exits with an error is started again
+-- after a pause, which is what makes this usable as a role entrypoint:
+--
+--   entrypoint = { "bin/run-many.lua", "--restart", "app/bin/a.lua", "app/bin/b.lua" }
+--
+-- (A role entrypoint may be a list of words, so arguments survive intact.
+-- An earlier attempt wrote it as one string, which the loader treated as a
+-- single filename - it found no such file and silently ran nothing.)
 --
 -- Each argument is one command; quote commands containing spaces. A
 -- semi-colon also separates commands, so both of these launch two programs:
@@ -11,10 +20,26 @@
 --   run-many "a.lua; b.lua"
 --
 -- Multitasking is cooperative: a program that never yields will block
--- everything else, exactly as with the parallel/multishell APIs.
+-- everything else, exactly as with the parallel/multishell APIs. The
+-- scheduling itself lives in lib/tasks.lua, shared with anything else that
+-- has to run several programs at once.
+--
+-- Note that this program owns the keyboard: up/down/x/q drive the list,
+-- and every event is also passed on to the programs. A program with its own
+-- key-driven interface will therefore fight with the list for arrow keys -
+-- run those from a supervisor of their own instead (see bin/glasses.lua).
 
 local unpack = table.unpack or unpack
 local colours = colours or colors
+
+-- ../lib/tasks.lua relative to this program, so it works both under /app
+-- and straight out of the controller's files/ directory.
+local LIB = fs.combine(fs.getDir(fs.getDir(shell.getRunningProgram())), "lib/tasks.lua")
+if not fs.exists(LIB) then
+  error("run-many needs " .. LIB, 0)
+end
+local tasks = dofile(LIB)
+local execute = shell.execute or shell.run
 
 local function pad(s, w)
   if #s >= w then return s:sub(1, w) end
@@ -60,18 +85,26 @@ end
 -- Parse arguments
 --------------------------------------------------------------------------
 
+local RESTART_WAIT = 10
+
 local args = { ... }
 if #args == 0 or args[1] == "-h" or args[1] == "--help" then
-  print("Usage: run-many <command> [<command> ...]")
+  print("Usage: run-many [-r|--restart] <command> [<command> ...]")
   print("Runs each command in parallel and shows their output.")
+  print("--restart brings a command back if it exits with an error.")
   print([[Example: run-many "sleep 5" "sleep 10"]])
   return
 end
 
+local restart = false
 local commands = {}
 for _, arg in ipairs(args) do
-  for _, words in ipairs(parseCommands(arg)) do
-    commands[#commands + 1] = words
+  if arg == "-r" or arg == "--restart" then
+    restart = true
+  else
+    for _, words in ipairs(parseCommands(arg)) do
+      commands[#commands + 1] = words
+    end
   end
 end
 if #commands == 0 then
@@ -120,9 +153,19 @@ for i, words in ipairs(commands) do
   }
 end
 
+-- The capture window is never shown; we read its lines back with getLine.
+-- `out` is the same window under the name the scheduler draws to.
+local function attachWindow(p, win)
+  p.win = win
+  p.out = win
+end
+
+local function newWindow()
+  return window.create(root, layout.logX, layout.logY, layout.logW, layout.logH, false)
+end
+
 for _, p in ipairs(processes) do
-  -- The capture window is never shown; we read its lines back with getLine.
-  p.win = window.create(root, layout.logX, layout.logY, layout.logW, layout.logH, false)
+  attachWindow(p, newWindow())
 end
 
 -- Cursor / writing helpers that work directly on a window object.
@@ -244,31 +287,44 @@ local function render()
 end
 
 --------------------------------------------------------------------------
--- Cooperative scheduler: one coroutine per command, each with its own
--- terminal redirect that is installed right before it is resumed and
--- removed afterwards (so parallel coroutines don't stomp on each other).
+-- Bodies. The scheduler itself is lib/tasks.lua: it installs each task's
+-- terminal around that task's own resume, and honours the event filter
+-- the task yielded.
 --------------------------------------------------------------------------
 
-local function resumeProcess(p, ...)
-  if coroutine.status(p.co) == "dead" then return end
-  term.redirect(p.win)
-  local ok, err = coroutine.resume(p.co, ...)
-  term.redirect(root)
-  if not ok then
-    p.status = "error"
-    winPrint(p.win, "run-many: " .. tostring(err), colours.red)
-  elseif coroutine.status(p.co) == "dead" and p.status == "running" then
-    p.status = "done"
+local function body(p)
+  return function()
+    while true do
+      winPrint(p.win, "$ " .. p.name, colours.lightBlue)
+      local ok = execute(unpack(p.words))
+      if p.status == "stopped" then return end
+      if ok then
+        p.status = "done"
+        return
+      end
+      if not restart then
+        p.status = "error"
+        return
+      end
+      winPrint(p.win, "[exited, restarting in " .. RESTART_WAIT .. "s]", colours.orange)
+      sleep(RESTART_WAIT)
+    end
   end
 end
 
 for _, p in ipairs(processes) do
-  p.co = coroutine.create(function()
-    winPrint(p.win, "$ " .. p.name, colours.lightBlue)
-    local ok = shell.run(unpack(p.words))
-    if p.status == "stopped" then return end
-    p.status = ok and "done" or "error"
-  end)
+  p.body = body(p)
+end
+
+-- A crash of the wrapper itself, rather than of the program (shell.run
+-- catches those and just returns false), is reported where its output is.
+local function reportCrashes()
+  for _, p in ipairs(processes) do
+    if p.error and not p.reported then
+      p.reported = true
+      winPrint(p.win, "run-many: " .. p.error, colours.red)
+    end
+  end
 end
 
 --------------------------------------------------------------------------
@@ -281,14 +337,14 @@ local function doResize()
   if layout.logW < 1 or layout.listH < 1 then return end
   for _, p in ipairs(processes) do
     local oldWin = p.win
-    local newWin = window.create(root, layout.logX, layout.logY, layout.logW, layout.logH, false)
+    local newWin = newWindow()
     for i = 1, math.min(layout.logH, old.logH) do
       local text, fg, bg = oldWin.getLine(i)
       newWin.setCursorPos(1, i)
       newWin.blit(text:sub(1, layout.logW), fg:sub(1, layout.logW), bg:sub(1, layout.logW))
     end
     newWin.setCursorPos(1, math.min(layout.logH, old.logH + 1))
-    p.win = newWin
+    attachWindow(p, newWin)
   end
 end
 
@@ -300,24 +356,19 @@ local timer = os.startTimer(0.25)
 render()
 
 for _, p in ipairs(processes) do
-  p.status = "running"
-  resumeProcess(p)
+  tasks.start(p)
 end
+reportCrashes()
 render()
 
 local quit = false
 while not quit do
-  local ev = { os.pullEvent() }
+  local ev = table.pack(os.pullEvent())
   local name = ev[1]
-  local changed = false
+  local changed = tasks.running(processes) > 0
 
-  -- Forward the event to every still-running process
-  for _, p in ipairs(processes) do
-    if p.status == "running" and coroutine.status(p.co) == "suspended" then
-      resumeProcess(p, unpack(ev))
-      changed = true
-    end
-  end
+  tasks.dispatch(processes, ev)
+  reportCrashes()
 
   if name == "timer" then
     if ev[2] == timer then timer = os.startTimer(0.25) end
