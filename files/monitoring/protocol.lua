@@ -45,8 +45,8 @@ function M.option(name, default, parse)
 end
 
 -- Accepts a string or a list, always yields a (possibly empty) list of
--- lowercase topics.
-function M.topics(value)
+-- lowercase topics: what an event is tagged with.
+function M.topicList(value)
     if type(value) == "string" then value = { value } end
     if type(value) ~= "table" then return {} end
     local out = {}
@@ -83,33 +83,34 @@ function M.normalise(msg, source)
         id       = id,
         message  = message,
         severity = M.severity(msg.severity) or "info",
-        topics   = M.topics(msg.topics),
+        topics   = M.topicList(msg.topics),
         source   = source,
         label    = type(msg.label) == "string" and msg.label or nil,
         ttl      = ttl,
     }
 end
 
--- "energy, security" -> { energy = true, security = true }; nil when
--- unset, which means "subscribed to everything".
-function M.loadTags()
-    local raw = settings.get("monitoring.tags")
+-- The topics this client subscribes to, as a set:
+-- "energy, security" -> { energy = true, security = true }. nil when unset,
+-- which means "subscribed to everything".
+function M.loadTopics()
+    local raw = settings.get("monitoring.topics")
     if type(raw) ~= "string" then return nil end
-    local tags = {}
-    for tag in raw:gmatch("[^,%s]+") do
-        tags[tag:lower()] = true
+    local subscribed = {}
+    for topic in raw:gmatch("[^,%s]+") do
+        subscribed[topic:lower()] = true
     end
-    return next(tags) and tags or nil
+    return next(subscribed) and subscribed or nil
 end
 
--- No tags configured -> everything comes through; events without topics
--- ("untagged") always come through.
-function M.isSubscribed(event, tags)
-    if not tags then return true end
+-- Nothing subscribed -> everything comes through; events with no topics
+-- always come through.
+function M.isSubscribed(event, subscribed)
+    if not subscribed then return true end
     local topics = event.topics
     if type(topics) ~= "table" or #topics == 0 then return true end
     for _, topic in ipairs(topics) do
-        if tags[topic] then return true end
+        if subscribed[topic] then return true end
     end
     return false
 end

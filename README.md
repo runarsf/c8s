@@ -168,7 +168,7 @@ subscribes to, and a ten minute ttl, so forgotten ones tidy themselves up.
 
 Per-client options, set with `set`:
 
-    set monitoring.tags energy,security   -- subscribe to topics (default: all)
+    set monitoring.topics energy,security -- subscribe to topics (default: all)
     set monitoring.hud_lines 6            -- HUD entries before "+N more"
     set monitoring.snooze_minutes 10
     set monitoring.sounds.critical minecraft:block.bell.use

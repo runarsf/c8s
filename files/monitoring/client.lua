@@ -26,7 +26,7 @@ local DEFAULT_SOUND = {
 }
 local PITCH = { info = 1.4, warning = 1.0, critical = 0.7 }
 
-settings.define("monitoring.tags", {
+settings.define("monitoring.topics", {
     description = "Comma-separated topics to subscribe to; unset means all",
     type = "string",
 })
@@ -64,7 +64,7 @@ local selected = 1
 local status               -- transient footer message
 local lastHeard = 0        -- epoch of the last message from the server
 local lastSync  = 0
-local tags = mon.loadTags()
+local subscribed = mon.loadTopics()
 
 local function connected()
     return mon.now() - lastHeard < POLL * 2 * 1000
@@ -80,7 +80,7 @@ end
 local function listed(includeSnoozed)
     local list = {}
     for id, event in pairs(events) do
-        if mon.isSubscribed(event, tags) and (includeSnoozed or not isSnoozed(id)) then
+        if mon.isSubscribed(event, subscribed) and (includeSnoozed or not isSnoozed(id)) then
             list[#list + 1] = event
         end
     end
@@ -113,9 +113,9 @@ end
 local function row(event, width, marker)
     local head = marker .. mon.SHORT[event.severity] .. " "
     local tail = " " .. (isSnoozed(event.id) and "z" or "") .. mon.age(event.raisedAt)
-    local body = event.message
-    if width >= 40 then body = event.id .. "  " .. event.message end
-    return head .. truncate(body, width - #head - #tail) .. tail
+    local text = event.message
+    if width >= 40 then text = event.id .. "  " .. event.message end
+    return head .. truncate(text, width - #head - #tail) .. tail
 end
 
 local function drawTerminal()
@@ -239,7 +239,7 @@ local function applyDelta(msg)
         events[event.id] = event
         local escalated = previous
             and (mon.RANK[event.severity] or 0) > (mon.RANK[previous.severity] or 0)
-        if mon.isSubscribed(event, tags) and (msg.kind == "raised" or escalated) then
+        if mon.isSubscribed(event, subscribed) and (msg.kind == "raised" or escalated) then
             alert(event.severity)
         end
     end
