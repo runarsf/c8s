@@ -3,7 +3,7 @@
 -- the right).
 --
 -- Usage:
---   run-many [-r|--restart] <command> [<command> ...]
+--   run-many [-r|--restart] [-f|--focus] <command> [<command> ...]
 --
 -- With --restart, a command that exits with an error is started again
 -- after a pause, which is what makes this usable as a role entrypoint:
@@ -24,10 +24,11 @@
 -- scheduling itself lives in lib/tasks.lua, shared with anything else that
 -- has to run several programs at once.
 --
--- Note that this program owns the keyboard: up/down/x/q drive the list,
--- and every event is also passed on to the programs. A program with its own
--- key-driven interface will therefore fight with the list for arrow keys -
--- run those from a supervisor of their own instead (see bin/glasses.lua).
+-- ctrl+tab gives the selected program the whole screen and stops this
+-- program touching the keyboard at all, so something with its own
+-- key-driven interface gets the arrow keys to itself; ctrl+tab again comes
+-- back to the list. --focus starts that way, which is what a role whose
+-- first program is an interface wants.
 
 local unpack = table.unpack or unpack
 local colours = colours or colors
@@ -89,18 +90,22 @@ local RESTART_WAIT = 10
 
 local args = { ... }
 if #args == 0 or args[1] == "-h" or args[1] == "--help" then
-  print("Usage: run-many [-r|--restart] <command> [<command> ...]")
+  print("Usage: run-many [-r|--restart] [-f|--focus] <command> [<command> ...]")
   print("Runs each command in parallel and shows their output.")
   print("--restart brings a command back if it exits with an error.")
+  print("--focus starts with the whole screen given to the first command.")
+  print("ctrl+tab toggles that for the selected one.")
   print([[Example: run-many "sleep 5" "sleep 10"]])
   return
 end
 
-local restart = false
+local restart, startFocused = false, false
 local commands = {}
 for _, arg in ipairs(args) do
   if arg == "-r" or arg == "--restart" then
     restart = true
+  elseif arg == "-f" or arg == "--focus" then
+    startFocused = true
   else
     for _, words in ipairs(parseCommands(arg)) do
       commands[#commands + 1] = words
@@ -197,6 +202,7 @@ end
 --------------------------------------------------------------------------
 
 local selected = 1
+local focused          -- index of the program that has the whole screen
 
 local function listOffset()
   local visible = layout.listH
@@ -213,6 +219,7 @@ local function statusChar(p)
 end
 
 local function render()
+  if focused then return end  -- the focused program owns the screen
   term.redirect(root)
   local l = layout
 
@@ -283,7 +290,48 @@ local function render()
   term.setBackgroundColor(colours.grey)
   term.setTextColor(colours.white)
   term.setCursorPos(1, l.H)
-  term.write(pad(" up/down or click: select   X: stop   Q: quit", l.W))
+  term.write(pad(" up/down select  ctrl+tab focus  x stop  q quit", l.W))
+end
+
+--------------------------------------------------------------------------
+-- Focus: hand the whole screen to one program.
+--
+-- Rather than redirecting it elsewhere, its own window is repositioned to
+-- cover the screen and made visible, so it keeps everything it had already
+-- written. While one is focused this program draws nothing and reads no
+-- keys except the one that leaves, which is what lets a program with its
+-- own interface be run here at all.
+--------------------------------------------------------------------------
+
+local function applyFocus()
+  local p = processes[focused]
+  if not p then return end
+  local w, h = root.getSize()
+  p.win.reposition(1, 1, w, h)
+  p.win.setVisible(true)
+end
+
+local selfResize = false
+
+local function setFocus(index)
+  if focused == index then return end
+
+  local previous = processes[focused]
+  if previous then
+    previous.win.setVisible(false)
+    previous.win.reposition(layout.logX, layout.logY, layout.logW, layout.logH)
+  end
+
+  focused = index
+
+  if processes[focused] then
+    applyFocus()
+    -- Its terminal just changed size; say so, or it won't know to redraw.
+    selfResize = true
+    os.queueEvent("term_resize")
+  else
+    render()
+  end
 end
 
 --------------------------------------------------------------------------
@@ -359,8 +407,10 @@ for _, p in ipairs(processes) do
   tasks.start(p)
 end
 reportCrashes()
+if startFocused then setFocus(1) end
 render()
 
+local ctrlDown = false
 local quit = false
 while not quit do
   local ev = table.pack(os.pullEvent())
@@ -370,28 +420,46 @@ while not quit do
   tasks.dispatch(processes, ev)
   reportCrashes()
 
+  -- Nothing to look at once the focused program has stopped, and no way
+  -- back to the list except the key it was holding onto.
+  if focused and processes[focused].status ~= "running" then
+    setFocus(nil)
+    changed = true
+  end
+
   if name == "timer" then
     if ev[2] == timer then timer = os.startTimer(0.25) end
     changed = true
+  elseif name == "key_up" then
+    local k = ev[2]
+    if k == keys.leftCtrl or k == keys.rightCtrl then ctrlDown = false end
   elseif name == "key" then
     local k = ev[2]
-    if k == keys.up then
-      selected = math.max(1, selected - 1)
+    if k == keys.leftCtrl or k == keys.rightCtrl then
+      ctrlDown = true
+    elseif ctrlDown and k == keys.tab then
+      setFocus(focused == nil and selected or nil)
       changed = true
-    elseif k == keys.down then
-      selected = math.min(#processes, selected + 1)
-      changed = true
-    elseif k == keys.x then
-      local p = processes[selected]
-      if p and p.status == "running" then
-        p.status = "stopped"
-        winPrint(p.win, "[stopped by user]", colours.orange)
+    elseif not focused then
+      -- Every other key belongs to the focused program, when there is one.
+      if k == keys.up then
+        selected = math.max(1, selected - 1)
+        changed = true
+      elseif k == keys.down then
+        selected = math.min(#processes, selected + 1)
+        changed = true
+      elseif k == keys.x then
+        local p = processes[selected]
+        if p and p.status == "running" then
+          p.status = "stopped"
+          winPrint(p.win, "[stopped by user]", colours.orange)
+        end
+        changed = true
+      elseif k == keys.q then
+        quit = true
       end
-      changed = true
-    elseif k == keys.q then
-      quit = true
     end
-  elseif name == "mouse_click" or name == "monitor_touch" then
+  elseif (name == "mouse_click" or name == "monitor_touch") and not focused then
     local x, y = ev[3], ev[4]
     if x and y and x >= layout.listX and x < layout.divX
        and y >= layout.listY and y < layout.listY + layout.listH then
@@ -400,7 +468,14 @@ while not quit do
     end
     changed = true
   elseif name == "term_resize" then
-    doResize()
+    -- A resize we queued ourselves to tell a program it just got the whole
+    -- screen; re-laying everything out on it would undo exactly that.
+    if selfResize then
+      selfResize = false
+    else
+      doResize()
+      applyFocus()
+    end
     changed = true
   end
 

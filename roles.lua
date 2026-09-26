@@ -9,10 +9,17 @@ return {
     },
 
     smart_glasses = {
-        version = 4,
-        entrypoint = "bin/glasses.lua",
+        version = 5,
+        -- run-many supervises all three; --focus hands the screen to the
+        -- monitoring client, and ctrl+tab gets back to the program list.
+        entrypoint = {
+            "bin/run-many.lua", "--restart", "--focus",
+            "/app/monitoring/client.lua",
+            "/app/bin/toggle-night-vision.lua",
+            "/app/bin/ntfy-consume.lua",
+        },
         files = {
-            { src = "bin/glasses.lua" },
+            { src = "bin/run-many.lua" },
             { src = "lib/tasks.lua" },
             { src = "bin/ntfy-consume.lua" },
             { src = "bin/toggle-night-vision.lua" },
