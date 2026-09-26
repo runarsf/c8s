@@ -9,11 +9,27 @@ return {
     },
 
     smart_glasses = {
-        version = 2,
-        entrypoint = "bin/ntfy-consume.lua",
+        version = 3,
+        entrypoint = "bin/glasses.lua",
         files = {
+            { src = "bin/glasses.lua" },
             { src = "bin/ntfy-consume.lua" },
             { src = "bin/toggle-night-vision.lua" },
+            { src = "bin/alert.lua" },
+            { src = "monitoring/protocol.lua" },
+            { src = "monitoring/hud.lua" },
+            { src = "monitoring/client.lua" },
+        },
+    },
+
+    -- Owns the event state everything else reads. Put this on a computer
+    -- in a chunk that stays loaded.
+    monitoring_server = {
+        version = 1,
+        entrypoint = "monitoring/server.lua",
+        files = {
+            { src = "monitoring/protocol.lua" },
+            { src = "monitoring/server.lua" },
         },
     },
 

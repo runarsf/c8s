@@ -60,6 +60,75 @@
 - A role can also define `dest = "setup.lua"`, which will run once via `shell.run`
   right after every sync regardless.
 
+## Monitoring
+
+Events are *state*, not notifications: something raises one, and it stays
+up on every pair of smart glasses until it is resolved - over rednet by
+whatever raised it, or by hand from the list UI.
+
+- `monitoring_server` owns the events and writes them to `/state/events.lua`.
+  Run it on a computer in a chunk that stays loaded; it has to keep state
+  while nobody is nearby. One per world.
+- `smart_glasses` runs the client, which pulls a snapshot at startup and
+  follows numbered deltas after that. So a player who was logged out sees
+  the same open events as everyone else the moment they log back in.
+  Sounds only ever play for deltas - a snapshot is the world as it already
+  was, and makes no noise.
+- Resolving is global (the condition is handled, for everybody). Snoozing
+  (`s`) is local: it hides a line on your own HUD for
+  `monitoring.snooze_minutes` and nobody else is affected.
+
+Raise and resolve with `bin/alert.lua`, which is both a command and a
+one-file library, so an emitting role ships it and nothing else:
+
+    alert critical "Coolant below 20%" --id reactor/coolant --topic energy
+    alert resolve reactor/coolant
+    alert list
+
+    local alert = dofile("/app/bin/alert.lua")
+    alert.raise{ id = "reactor/coolant", message = "Coolant below 20%",
+                 severity = "critical", ttl = 60 }
+    alert.resolve("reactor/coolant")
+
+Re-raising the same `id` is free: the server keeps one event per id, and
+only sends an update (and only makes a noise) if the wording or severity
+actually changed. So a polling script needs no memory of what it already
+reported - it just says what is true right now, every cycle:
+
+    local alert = dofile("/app/bin/alert.lua")
+
+    while true do
+      if batteryPercent() < 50 then
+        alert.raise{ id = "battery/main", severity = "warning",
+                     message = "Battery below 50%", ttl = 60 }
+      else
+        alert.resolve("battery/main")     -- a no-op if it wasn't open
+      end
+      sleep(30)
+    end
+
+That is the whole emitter. `raise` deduplicates, `resolve` is harmless
+when nothing is open, and `ttl` means the event clears itself a minute
+after this script stops saying it - whether the battery recovered or the
+computer got unloaded.
+
+Two things to get right:
+
+- **Always pass a stable `id`.** Without one the id is derived from the
+  message, so a message with a live number in it ("Battery at 43%") opens
+  a new event per reading. The server caps open events per computer to
+  stop that burying everyone's HUD, but the id is the real fix.
+- **Keep the message stable too** while a condition holds. Putting a
+  changing number in it is allowed and won't re-alert anybody, but it does
+  broadcast an update to every client each cycle.
+
+Per-client options, set with `set`:
+
+    set monitoring.tags energy,security   -- subscribe to topics (default: all)
+    set monitoring.hud_lines 6            -- HUD entries before "+N more"
+    set monitoring.snooze_minutes 10
+    set monitoring.sounds.critical minecraft:block.bell.use
+
 ## Gotchas
 
 - `shell` isn't a real global in CC:Tweaked - it's injected only into
