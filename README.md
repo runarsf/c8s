@@ -153,6 +153,19 @@ Two things to get right:
   changing number in it is allowed and won't re-alert anybody, but it does
   broadcast an update to every client each cycle.
 
+The `phone` role is a pocket computer with no interface at all: it syncs,
+puts `/app/bin` on PATH and drops into a shell, so `alert` and `test-event`
+are there to hand. `test-event` covers what raising events by hand needs
+and `alert` doesn't - generated ids, bursts, escalating an open event:
+
+    test-event critical "Reactor"   -- one event, id test/<phone>/<n>
+    test-event burst 8              -- eight at once, to see the HUD overflow
+    test-event up                   -- escalate the newest, which re-alerts
+    test-event clear                -- resolve everything this phone raised
+
+Its events carry no topics, so they reach every pair of glasses whatever it
+subscribes to, and a ten minute ttl, so forgotten ones tidy themselves up.
+
 Per-client options, set with `set`:
 
     set monitoring.tags energy,security   -- subscribe to topics (default: all)

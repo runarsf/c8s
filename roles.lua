@@ -41,6 +41,19 @@ return {
         },
     },
 
+    -- CLI-only phone for poking the monitoring system by hand. Its
+    -- entrypoint only puts /app/bin on PATH and returns, so the phone lands
+    -- in an ordinary shell with `test-event` and `alert` available.
+    phone = {
+        version = 1,
+        entrypoint = "bin/init-bin.lua",
+        files = {
+            { src = "bin/init-bin.lua" },
+            { src = "bin/alert.lua" },
+            { src = "bin/test-event.lua" },
+        },
+    },
+
     gps_node = {
         version = 1,
         files = {
