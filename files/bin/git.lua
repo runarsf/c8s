@@ -60,7 +60,7 @@ kinds.github = function(host)
                 if entry.type ~= 'tree' and entry.type ~= 'commit' then
                     local url = ('https://%s/%s/%s/%s/%s')
                         :format(rawBase, user, repo, branch, entry.path)
-                    table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = entry.size })
+                    table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob' })
                 end
             end
             return files
@@ -111,12 +111,7 @@ kinds.gitlab = function(host)
                 for _, entry in ipairs(entries) do
                     if entry.type ~= 'tree' and entry.type ~= 'commit' then
                         local url = ('https://%s/%s/%s/-/raw/%s/%s'):format(host, user, repo, branch, entry.path)
-                        -- NOTE: GitLab's tree API doesn't return file size
-                        -- (unlike GitHub's), so the existing-file skip check
-                        -- in clone() can't apply here — gitlab-sourced files
-                        -- are always re-downloaded even if a same-named
-                        -- local file exists.
-                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = nil })
+                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob' })
                     end
                 end
 
@@ -171,7 +166,7 @@ kinds.forgejo = function(host)
                 for _, entry in ipairs(body.tree) do
                     if entry.type ~= 'tree' and entry.type ~= 'commit' then
                         local url = ('https://%s/%s/%s/raw/branch/%s/%s'):format(host, user, repo, branch, entry.path)
-                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob', size = entry.size })
+                        table.insert(files, { path = entry.path, url = url, binary = entry.type == 'blob' })
                     end
                 end
 
@@ -213,7 +208,7 @@ local instances = {
 }
 
 -- Per-provider logic: each provider knows how to list a repo's files
--- (as {path, url, binary, size}) and how to look up its default branch.
+-- (as {path, url, binary}) and how to look up its default branch.
 -- Built from `instances` + `kinds` above, keyed the same way as `instances`.
 local providers = {}
 for name, instance in pairs(instances) do
@@ -316,11 +311,37 @@ local function readGitMarker(repoPath)
     return content
 end
 
+local function readLocal(path, binary)
+    if not fs.exists(path) or fs.isDir(path) then
+        return nil
+    end
+    local file = fs.open(path, binary and 'rb' or 'r')
+    if not file then
+        return nil
+    end
+    local content = file.readAll()
+    file.close()
+    return content
+end
+
+-- Fetches every file and writes the ones whose contents actually differ.
+--
+-- The old test for "this file is already current" was its size matching the
+-- size the API reported, which is not the same question: `return 6` and
+-- `return 7` are both nine bytes, so a version bump was skipped on every
+-- pull and the file stayed stale until someone deleted it by hand. Any edit
+-- that happens to preserve the byte count had the same problem.
+--
+-- Comparing contents means a pull always costs one request per file. That
+-- is the honest price of being correct; if it ever gets slow, the fast path
+-- is to record the branch's head commit in the marker file and skip the
+-- whole pull when it hasn't moved.
 local function clone(repoPath, files)
     local processes = {}
     local x, y = term.getCursorPos()
 
-    local downloadedCount = 0
+    local downloadedCount, changedCount = 0, 0
+    local failures = {}
 
     local function step_progress(leading_text)
         term.setCursorPos(x, y)
@@ -338,30 +359,39 @@ local function clone(repoPath, files)
         local function download()
             local filePath = fs.combine(repoPath, files[i].path)
 
-            if fs.exists(filePath) then
-                if fs.getSize(filePath) == files[i].size then
-                    step_progress('Checking files')
-                    return
-                end
+            -- An unchecked http.get here used to crash the whole pull on the
+            -- first failed request, part-way through the tree.
+            local request, reason = http.get(files[i].url, nil, files[i].binary)
+            if not request then
+                table.insert(failures, files[i].path .. ': ' .. tostring(reason))
+                step_progress('Receiving files')
+                return
             end
 
-            local request = http.get(files[i].url, nil, files[i].binary)
             local content = request.readAll()
             request.close()
 
-            local mode = 'w'
-            if files[i].binary then
-                mode = 'wb'
+            if content ~= readLocal(filePath, files[i].binary) then
+                local writer = fs.open(filePath, files[i].binary and 'wb' or 'w')
+                if writer then
+                    writer.write(content or '')
+                    writer.close()
+                    changedCount = changedCount + 1
+                else
+                    table.insert(failures, files[i].path .. ': could not be written')
+                end
             end
 
-            local writer = fs.open(filePath, mode)
-            writer.write(content or '')
-            writer.close()
             step_progress('Receiving files')
         end
         table.insert(processes, download)
     end
     parallel.waitForAll(table.unpack(processes))
+
+    print(('%d of %d file(s) updated'):format(changedCount, #files))
+    for _, failure in ipairs(failures) do
+        printError(failure)
+    end
 end
 
 local function parseGitModules(repoPath)
