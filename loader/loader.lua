@@ -134,6 +134,15 @@ local function haveRole(bundle)
       return false
     end
   end
+  -- The markers writeRole leaves are as necessary as the files: without
+  -- _entrypoint.lua the loader falls back to main.lua and, for a role that
+  -- has no main.lua, silently runs nothing at all - and would keep doing
+  -- so forever, since the version said everything was fine.
+  for _, marker in ipairs({ "_entrypoint.lua", "_config.lua" }) do
+    if not fs.exists(fs.combine(APP_DIR, marker)) then
+      return false
+    end
+  end
   return true
 end
 
