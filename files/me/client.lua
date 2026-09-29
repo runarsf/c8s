@@ -288,6 +288,20 @@ end
 
 -- Keys ----------------------------------------------------------------------
 
+-- Whether the keyboard is ours. run-many hands every event to every program
+-- it supervises, not only the one on screen, and focus there is a window that
+-- was made visible - so without this, an arrow key pressed in the monitoring
+-- client walks this list in the background and an enter meant for it sends
+-- items. A plain terminal has no isVisible, and is also the case where there
+-- is nobody to share the keyboard with.
+local function onScreen()
+    local current = term.current()
+    if type(current.isVisible) ~= "function" then return true end
+    local ok, visible = pcall(current.isVisible)
+    if not ok then return true end
+    return visible ~= false
+end
+
 local function onChar(ch)
     if screen == "search" then
         query = query .. ch
@@ -382,14 +396,17 @@ local function run()
     while true do
         local event = { os.pullEvent() }
         local name = event[1]
+        local mine = onScreen()
 
-        if name == "char" then
+        if name == "char" and mine then
             onChar(event[2])
-        elseif name == "key" then
+        elseif name == "key" and mine then
             local _, height = term.getSize()
             if onKey(event[2], height) then return end
         end
 
+        -- Drawn even when something else has the screen: this is a window
+        -- either way, and it should already be right when it is handed over.
         render()
     end
 end
