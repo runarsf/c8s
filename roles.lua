@@ -1,6 +1,6 @@
 return {
     workstation = {
-        version = 1,
+        version = 2,
         entrypoint = "bin/init-bin.lua",
         files = {
             { src = "bin/" },
@@ -111,6 +111,36 @@ return {
         version = 3,
         files = {
             { src = "nodes/presence_detector/main.lua", dest = "main.lua" },
+        },
+    },
+
+    me_server = {
+        version = 1,
+        entrypoint = "me/server.lua",
+        files = {
+            { src = "me/protocol.lua" },
+            { src = "me/bridge.lua" },
+            { src = "me/server.lua" },
+            { src = "bin/alert.lua" },
+        },
+        config = {
+            bridge = "meBridge",
+            destinations = {
+                { name = "furnace",  container = "minecraft:chest_0" },
+                { name = "crushing", container = "minecraft:barrel_1" },
+            },
+            search_limit    = 60,
+            cache_ttl       = 5,
+            health_interval = 30,
+        },
+    },
+
+    me_client = {
+        version = 1,
+        entrypoint = "me/client.lua",
+        files = {
+            { src = "me/protocol.lua" },
+            { src = "me/client.lua" },
         },
     },
 }
