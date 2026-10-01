@@ -82,11 +82,12 @@ local function call(method, ...)
     return value
 end
 
--- Every item the system is storing. Expensive: the server caches this.
+-- Every item the system is storing. The empty filter is what asks for all of
+-- them. Expensive: the server caches the result.
 function M.items()
-    local list, err = call("listItems")
+    local list, err = call("getItems", {})
     if not list then return nil, err end
-    if type(list) ~= "table" then return nil, "listItems did not return a list" end
+    if type(list) ~= "table" then return nil, "getItems did not return a list" end
     return list
 end
 
@@ -97,12 +98,35 @@ function M.item(filter)
     return item
 end
 
+-- How many items a result says were moved. 0.8 hands back the stack it moved
+-- rather than a count, so the number comes off that; a build that returns a
+-- bare number still works.
+local function movedCount(result)
+    if type(result) == "number" then return result end
+    if type(result) ~= "table" then return nil end
+    return tonumber(result.count) or tonumber(result.transferred) or tonumber(result.amount)
+end
+
+local function keysOf(result)
+    local names = {}
+    for key in pairs(result) do names[#names + 1] = tostring(key) end
+    table.sort(names)
+    return table.concat(names, " ")
+end
+
 -- Moves up to filter.count into `container`, and reports how much that
--- actually was.
+-- actually was. Note the argument order: exportItem takes the target first.
 function M.exportTo(filter, container)
-    local moved, err = call("exportItemToPeripheral", filter, container)
-    if not moved then return nil, err end
-    return math.max(0, math.floor(tonumber(moved) or 0))
+    local result, err = call("exportItem", container, filter)
+    if not result then return nil, err end
+
+    local moved = movedCount(result)
+    if not moved then
+        -- Better than reporting a wrong number: the caller stops, and the
+        -- message says exactly what came back instead.
+        return nil, "exportItem returned no count (keys: " .. keysOf(result) .. ")"
+    end
+    return math.max(0, math.floor(moved))
 end
 
 -- Command line -------------------------------------------------------------

@@ -9,7 +9,7 @@ return {
     },
 
     smart_glasses = {
-        version = 9,
+        version = 10,
         settings = {
             ["monitoring.sounds.info"]     = "sounds/info.dfpwm",
             ["monitoring.sounds.warning"]  = "sounds/warning.dfpwm",
@@ -104,7 +104,7 @@ return {
     },
 
     me_server = {
-        version = 2,
+        version = 3,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
@@ -127,7 +127,7 @@ return {
     },
 
     me_client = {
-        version = 2,
+        version = 3,
         entrypoint = "me/client.lua",
         files = {
             { src = "me/protocol.lua" },

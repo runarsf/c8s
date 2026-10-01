@@ -1,7 +1,7 @@
 -- Serves the ME system to pocket clients: search for an item, list the
 -- places it can be sent, send some.
 --
--- Clients ask for matches, never for the inventory. listItems() on a real ME
+-- Clients ask for matches, never for the inventory. getItems() on a real ME
 -- system is thousands of entries, and serialising that to a pocket computer
 -- once per search is not something you do twice - so the search runs here
 -- and only what matched goes over the wire. The listing is cached for a few
@@ -9,7 +9,7 @@
 -- item.
 --
 -- Destinations come from this role's config in roles.lua: a name a human
--- picks from, and the peripheral name exportItemToPeripheral needs. Adding a
+-- picks from, and the peripheral name exportItem needs as its target. Adding a
 -- furnace is therefore a controller-side edit, not a visit to the pocket
 -- computer.
 
@@ -167,7 +167,9 @@ local function search(query, limit)
 
     local out = {}
     for _, item in ipairs(list) do
-        local amount = math.floor(tonumber(item.amount) or 0)
+        -- `count` on a stack from the bridge is the whole system's total, not
+        -- a stack size. It travels as `amount` to keep that distinction.
+        local amount = math.floor(tonumber(item.count) or 0)
         -- Zero-stock rows are patterns the system knows and has none of.
         -- There is nothing to export, and they crowd out the rows there is.
         local score = amount > 0 and match(item) or nil
@@ -213,13 +215,13 @@ local function send(msg)
         return { op = "error", message = dest.name .. " is not on the network" }
     end
 
-    -- The fingerprint a search handed out can be minutes old by the time
-    -- somebody has picked an amount, so ask again and export against what
-    -- the system says right now. Name and nbt are what stayed stable.
-    local fresh, err = bridge.item({ name = item.name, nbt = item.nbt })
+    -- What a search reported can be minutes old by the time somebody has
+    -- picked an amount, so ask again and export against what the system says
+    -- right now. The name and the nbt hash are what stayed stable.
+    local fresh, err = bridge.item(me.filter(item))
     if not fresh then return { op = "error", message = err } end
 
-    local stock = math.floor(tonumber(fresh.amount) or 0)
+    local stock = math.floor(tonumber(fresh.count) or 0)
     if stock <= 0 then
         return { op = "error", message = "none in stock" }
     end

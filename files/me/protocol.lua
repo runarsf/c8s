@@ -2,7 +2,7 @@
 -- search rules, and the formatting the server's console and the pocket
 -- client both need.
 --
--- The search lives here rather than in the client because listItems() on a
+-- The search lives here rather than in the client because getItems() on a
 -- real ME system is thousands of entries: only the matches cross the wire,
 -- so the two sides have to agree on what "matches" means and in what order.
 
@@ -56,17 +56,15 @@ function M.byScore(a, b)
     return (a.amount or 0) > (b.amount or 0)
 end
 
--- The filter the ME Bridge wants for one particular item. A fingerprint
--- pins down a specific nbt variant exactly, so it wins whenever we have a
--- fresh one; name and nbt are what survives a round trip through a client
--- that only ever saw a list. Never both: the docs say one or the other.
+-- The filter the ME Bridge wants for one particular item. There is no
+-- fingerprint in AP 0.8: a name plus the nbt hash is what picks out one
+-- variant, and note the asymmetry - a returned stack calls that hash `nbt`
+-- while a filter calls it `nbtHash`. Omitted rather than passed empty when
+-- there is none, so an item with no components still matches.
 function M.filter(item, count)
-    local out = {}
-    if type(item.fingerprint) == "string" and #item.fingerprint > 0 then
-        out.fingerprint = item.fingerprint
-    else
-        out.name = item.name
-        if type(item.nbt) == "string" then out.nbt = item.nbt end
+    local out = { name = item.name }
+    if type(item.nbt) == "string" and #item.nbt > 0 then
+        out.nbtHash = item.nbt
     end
     if count then out.count = count end
     return out
