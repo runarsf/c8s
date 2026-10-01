@@ -395,8 +395,16 @@ local function run()
     status = " looking for the server..."
     render()
 
+    -- Spelled out rather than `list and nil or (" " .. derr)`: that always
+    -- takes the right-hand side, because the `and` arm is nil and nil is
+    -- falsy - so a fetch that worked would concatenate the error it didn't
+    -- get.
     local list, derr = fetchDestinations()
-    status = list and nil or (" " .. derr)
+    if list then
+        status = nil
+    else
+        status = " " .. derr
+    end
     render()
 
     while true do
