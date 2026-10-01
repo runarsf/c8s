@@ -29,7 +29,7 @@ do
 end
 
 local DEFAULTS = {
-    bridge          = "meBridge",
+    bridge          = "me_bridge",
     destinations    = {},
     search_limit    = 60,
     cache_ttl       = 5,

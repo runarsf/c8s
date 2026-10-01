@@ -104,7 +104,7 @@ return {
     },
 
     me_server = {
-        version = 1,
+        version = 2,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
@@ -113,7 +113,9 @@ return {
             { src = "bin/alert.lua" },
         },
         config = {
-            bridge = "meBridge",
+            -- A peripheral type, or a specific name ("me_bridge_0", "back")
+            -- when there is more than one bridge on the network.
+            bridge = "me_bridge",
             destinations = {
                 { name = "furnace",  container = "minecraft:chest_0" },
                 { name = "crushing", container = "minecraft:barrel_1" },
