@@ -104,7 +104,7 @@ return {
     },
 
     me_server = {
-        version = 11,
+        version = 12,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },

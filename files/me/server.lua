@@ -374,26 +374,13 @@ local function run()
     -- rednet.lookup working for anything that prefers it.
     pcall(rednet.host, me.PROTOCOL, me.HOSTNAME)
 
-    -- Printed in full rather than counted: this banner is where you find out
-    -- whether the machine you just wired in came through. For what did not,
-    -- `me/bridge.lua probe` lists every peripheral with its type.
+    -- One line. The screen's job from here is the request log, and a CC
+    -- terminal has no scrollback to push it off of.
     local list = stations()
     report("up", ("%s - %d station%s, %s"):format(NAME, #list,
         #list == 1 and "" or "s",
         bridge.available() and "bridge ready" or "no bridge yet"),
         bridge.available() and colors.lime or colors.orange)
-    for _, station in ipairs(list) do
-        report("station", station, colors.lightGray)
-    end
-
-    -- Which methods the attached bridge has is a per-version fact, and it is
-    -- the thing an export failure turns on. Printed here rather than left to
-    -- `bridge.lua probe`, because the question only ever comes up when the
-    -- server is already running.
-    local methods = bridge.methods()
-    if methods then
-        report("methods", table.concat(methods, " "), colors.lightGray)
-    end
 
     parallel.waitForAny(requests, health)
 end
