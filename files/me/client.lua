@@ -49,6 +49,16 @@ local function request(msg)
         local sender, reply = rednet.receive(me.PROTOCOL, math.max(0, deadline - os.clock()))
         if type(reply) == "table" then
             local op = reply.op
+            -- Asking for the destinations and being handed them are the same
+            -- op, so another client's broadcast is indistinguishable from the
+            -- server's answer to ours - and taking one for the other means an
+            -- empty list plus `server` pointing at a pocket computer that
+            -- will never answer again. The payload is what tells them apart:
+            -- a request carries none.
+            if op == "destinations" and type(reply.destinations) ~= "table" then
+                op = nil  -- another client asking; keep waiting for the server
+            end
+
             if op == "ok" or op == "items" or op == "destinations" then
                 server = sender
                 return reply
@@ -228,14 +238,18 @@ local function toDestinations()
         return
     end
 
-    if not dests then
-        status = " asking..."
-        render()
-        local list, err = fetchDestinations()
-        if not list then
-            status = " " .. err
-            return
-        end
+    -- Asked every time this screen opens, not just when there is nothing
+    -- cached: which stations exist and which are on the network is an answer
+    -- about right now, and this is the only screen that uses it. Re-fetching
+    -- only when the list was nil meant one empty answer - from a server that
+    -- had not yet found its stations - stuck for the life of the program, and
+    -- looked exactly like a client that could not reach the server at all.
+    status = " asking..."
+    render()
+    local list, err = fetchDestinations()
+    if not list then
+        status = " " .. err
+        return
     end
 
     destPick = 1
@@ -287,9 +301,6 @@ local function sendIt()
         -- left the system.
         item.amount = math.max(0, stock() - (reply.moved or 0))
     end
-    -- A destination's presence may have changed while we were away, and the
-    -- next send should not be decided by a stale flag.
-    dests = nil
 end
 
 -- Keys ----------------------------------------------------------------------
@@ -389,22 +400,10 @@ local function run()
     local ok, err = me.openModem()
     if not ok then error(err, 0) end
 
-    -- Asked for up front so the first screen can say whether the server is
-    -- there at all, rather than looking ready and failing on the first search.
-    -- Drawn before the asking, or a missing server is five seconds of black.
-    status = " looking for the server..."
-    render()
-
-    -- Spelled out rather than `list and nil or (" " .. derr)`: that always
-    -- takes the right-hand side, because the `and` arm is nil and nil is
-    -- falsy - so a fetch that worked would concatenate the error it didn't
-    -- get.
-    local list, derr = fetchDestinations()
-    if list then
-        status = nil
-    else
-        status = " " .. derr
-    end
+    -- Nothing is asked of the server before something needs it. This used to
+    -- fetch the destinations here so the first screen could say whether the
+    -- server was up, which cost a stale list for the life of the program and
+    -- told you nothing a first search doesn't say within five seconds.
     render()
 
     while true do

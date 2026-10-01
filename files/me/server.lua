@@ -294,8 +294,14 @@ local function send(msg)
     end
 
     if reason then
-        exportFailure = "Export to " .. dest.name .. " failed: " .. reason
-        return { op = "error", message = reason, moved = moved }
+        -- The container name goes in the event and the console line but not
+        -- the reply: the client has 26 columns, and the thing you need in
+        -- order to act on an INVENTORY_NOT_FOUND is which name the bridge
+        -- failed to resolve.
+        exportFailure = "Export to " .. dest.name .. " (" .. dest.container
+            .. ") failed: " .. reason
+        return { op = "error", message = reason, moved = moved,
+                 container = dest.container }
     end
     -- A partial move is not a failure: a full furnace is not an incident.
     exportFailure = nil
@@ -332,8 +338,11 @@ local function serve(sender, msg)
     elseif msg.op == "destinations" then
         -- Doubles as discovery and as a liveness check: a client that has
         -- never heard of us broadcasts this and learns our id from the reply.
-        rednet.send(sender, { op = "destinations", destinations = destinationList() },
-            me.PROTOCOL)
+        local list = destinationList()
+        rednet.send(sender, { op = "destinations", destinations = list }, me.PROTOCOL)
+        -- Reported because a client showing an empty list is otherwise
+        -- indistinguishable from a client whose request never arrived.
+        report("dests", ("%d to #%d"):format(#list, sender))
 
     elseif msg.op == "send" then
         local reply = send(msg)
@@ -342,7 +351,9 @@ local function serve(sender, msg)
             report("send", ("%d/%d %s -> %s"):format(reply.moved, reply.requested,
                 reply.displayName, reply.destination), colors.lime)
         else
-            report("send", reply.message, colors.red)
+            report("send", reply.message
+                .. (reply.container and (" -> " .. reply.container) or ""),
+                colors.red)
         end
     end
 end
