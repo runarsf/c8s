@@ -44,17 +44,6 @@ function M.available()
     return find() ~= nil
 end
 
--- The network name of the attached bridge, when it has one. Discovery wants
--- it so the bridge stays off its own list of destinations; a bridge placed
--- flush against the computer answers with its side ("back"), which is a name
--- like any other for that purpose.
-function M.attachedName()
-    local wrapped = find()
-    if not wrapped then return nil end
-    local ok, name = pcall(peripheral.getName, wrapped)
-    if ok and type(name) == "string" then return name end
-end
-
 -- Every method the attached bridge actually exposes, sorted.
 function M.methods()
     local bridge = find()

@@ -26,8 +26,8 @@ local selected = 1
 local item             -- the row picked on the results screen
 local amount   = "1"
 local typed    = false -- has a digit been entered since this screen opened
-local dests            -- destination list, fetched from the server on demand
-local destPick = 1
+local stations = {}    -- peripheral names, fetched from the server on demand
+local picked   = 1
 local status           -- transient footer line, cleared by the next keystroke
 
 -- Talking to the server -----------------------------------------------------
@@ -49,17 +49,17 @@ local function request(msg)
         local sender, reply = rednet.receive(me.PROTOCOL, math.max(0, deadline - os.clock()))
         if type(reply) == "table" then
             local op = reply.op
-            -- Asking for the destinations and being handed them are the same
-            -- op, so another client's broadcast is indistinguishable from the
+            -- Asking for the stations and being handed them are the same op,
+            -- so another client's broadcast is indistinguishable from the
             -- server's answer to ours - and taking one for the other means an
             -- empty list plus `server` pointing at a pocket computer that
             -- will never answer again. The payload is what tells them apart:
             -- a request carries none.
-            if op == "destinations" and type(reply.destinations) ~= "table" then
+            if op == "stations" and type(reply.stations) ~= "table" then
                 op = nil  -- another client asking; keep waiting for the server
             end
 
-            if op == "ok" or op == "items" or op == "destinations" then
+            if op == "ok" or op == "items" or op == "stations" then
                 server = sender
                 return reply
             elseif op == "error" then
@@ -111,7 +111,7 @@ local function wanted()
     return math.min(math.floor(tonumber(amount) or 0), stock())
 end
 
--- One list renderer for both the results and the destinations, so their
+-- One list renderer for both the results and the stations, so their
 -- scrolling and selection can't drift apart.
 local function drawList(list, sel, width, height, format)
     local visible = height - 2
@@ -174,16 +174,15 @@ local function render()
         bar(height, status or " digits  a all  enter ok", width)
         caret = { math.min(width, #amount + 4), 6 }
 
-    elseif screen == "dest" then
+    elseif screen == "station" then
         bar(1, (" send %d where?"):format(wanted()), width)
-        if not dests or #dests == 0 then
-            -- Nothing is "set up" any more, so the empty list means the
-            -- server found no inventory on its network at all.
+        if #stations == 0 then
+            -- Nothing is configured, so an empty list means the server found
+            -- nothing on its wired network at all.
             line(3, " no stations found", width, colors.lightGray)
         else
-            drawList(dests, destPick, width, height, function(entry, w, isSel)
-                return row(entry.name, entry.missing and "gone" or nil, w,
-                    isSel and "> " or "  "), entry.missing and colors.gray or colors.white
+            drawList(stations, picked, width, height, function(entry, w, isSel)
+                return row(entry, nil, w, isSel and "> " or "  ")
             end)
         end
         bar(height, status or " enter send   bksp back", width)
@@ -197,11 +196,11 @@ end
 
 -- Actions -------------------------------------------------------------------
 
-local function fetchDestinations()
-    local reply, err = request({ op = "destinations" })
+local function fetchStations()
+    local reply, err = request({ op = "stations" })
     if not reply then return nil, err end
-    dests = reply.destinations or {}
-    return dests
+    stations = reply.stations or {}
+    return stations
 end
 
 local function runSearch()
@@ -232,52 +231,44 @@ local function pick()
     status = nil
 end
 
-local function toDestinations()
+local function toStations()
     if wanted() <= 0 then
         status = " pick an amount first"
         return
     end
 
     -- Asked every time this screen opens, not just when there is nothing
-    -- cached: which stations exist and which are on the network is an answer
-    -- about right now, and this is the only screen that uses it. Re-fetching
-    -- only when the list was nil meant one empty answer - from a server that
-    -- had not yet found its stations - stuck for the life of the program, and
-    -- looked exactly like a client that could not reach the server at all.
+    -- cached: which stations are on the network is an answer about right now,
+    -- and this is the only screen that uses it. Re-fetching only when the
+    -- list was nil meant one empty answer - from a server that had not yet
+    -- found its stations - stuck for the life of the program, and looked
+    -- exactly like a client that could not reach the server at all.
     status = " asking..."
     render()
-    local list, err = fetchDestinations()
+    local list, err = fetchStations()
     if not list then
         status = " " .. err
         return
     end
 
-    destPick = 1
-    screen   = "dest"
-    status   = nil
+    picked = 1
+    screen = "station"
+    status = nil
 end
 
 local function sendIt()
-    local dest = dests and dests[destPick]
+    local dest = stations[picked]
     if not dest or not item then return end
-    if dest.missing then
-        status = " " .. dest.name .. " is not on the network"
-        return
-    end
 
     local count = wanted()
     status = " sending..."
     render()
 
-    -- The container name, not the label on screen: labels are derived from
-    -- the block on the server side, and the one this list was drawn from can
-    -- have been renumbered by the time the send goes out. The container is
-    -- what both ends agree on.
     local reply, err = request({
         op          = "send",
         item        = { name = item.name, nbt = item.nbt },
         count       = count,
-        destination = dest.container or dest.name,
+        destination = dest,
     })
 
     -- Back to the results either way: the footer carries the outcome, and a
@@ -293,7 +284,7 @@ local function sendIt()
     elseif reply.moved < reply.requested then
         status = (" sent %d of %d"):format(reply.moved, reply.requested)
     else
-        status = (" sent %d to %s"):format(reply.moved, dest.name)
+        status = (" sent %d to %s"):format(reply.moved, dest)
     end
 
     if reply and item then
@@ -377,14 +368,14 @@ local function onKey(key, height)
             end
             status = nil
         elseif key == keys.enter or key == keys.numPadEnter then
-            toDestinations()
+            toStations()
         end
 
-    elseif screen == "dest" then
+    elseif screen == "station" then
         if key == keys.up then
-            destPick = math.max(1, destPick - 1)
+            picked = math.max(1, picked - 1)
         elseif key == keys.down then
-            destPick = math.min(math.max(1, dests and #dests or 1), destPick + 1)
+            picked = math.min(math.max(1, #stations), picked + 1)
         elseif key == keys.enter or key == keys.numPadEnter then
             sendIt()
         elseif key == keys.backspace then
@@ -401,7 +392,7 @@ local function run()
     if not ok then error(err, 0) end
 
     -- Nothing is asked of the server before something needs it. This used to
-    -- fetch the destinations here so the first screen could say whether the
+    -- fetch the station list here so the first screen could say whether the
     -- server was up, which cost a stale list for the life of the program and
     -- told you nothing a first search doesn't say within five seconds.
     render()

@@ -9,7 +9,7 @@ return {
     },
 
     smart_glasses = {
-        version = 14,
+        version = 15,
         settings = {
             ["monitoring.sounds.info"]     = "sounds/info.dfpwm",
             ["monitoring.sounds.warning"]  = "sounds/warning.dfpwm",
@@ -104,12 +104,11 @@ return {
     },
 
     me_server = {
-        version = 7,
+        version = 8,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
             { src = "me/bridge.lua" },
-            { src = "me/stations.lua" },
             { src = "me/server.lua" },
             { src = "bin/alert.lua" },
         },
@@ -118,28 +117,20 @@ return {
             -- when there is more than one bridge on the network.
             bridge = "me_bridge",
 
-            -- Destinations are discovered: every inventory on the server's
-            -- wired network is offered, so a new machine needs no entry here.
-            -- These two lists are the exceptions.
-
-            -- Everything on the server's network is offered except what
-            -- these patterns (Lua patterns, matched against the peripheral
-            -- name) match. The ME system's own interfaces and pattern
-            -- providers are the usual entries - exporting into one puts the
-            -- items straight back where they came from - along with any
-            -- Advanced Peripherals gadget on the same network, which holds
-            -- no items but cannot be told apart from a machine that does.
-            -- Fill this in from what `me/stations.lua list` prints.
+            -- A station is a peripheral on the server's wired network, named
+            -- the way the network names it. Wiring a machine in is all it
+            -- takes to be able to send to it, so there is no list of them
+            -- here - only of what to leave out.
+            --
+            -- Lua patterns, matched against the peripheral name. The ME
+            -- system's own interfaces and pattern providers are the usual
+            -- entries - exporting into one puts the items straight back
+            -- where they came from - along with any Advanced Peripherals
+            -- gadget on the same network, which holds no items but cannot be
+            -- told apart from a machine that does. The server prints its
+            -- stations on boot, and `me/bridge.lua probe` lists every
+            -- peripheral with its type.
             ignore = {},
-
-            -- Stations worth naming by hand, and worth being told about when
-            -- they go missing: a declared one keeps its name, stays on the
-            -- list while it is off the network, and raises a monitoring
-            -- event. Everything else is discovered and named after its block.
-            destinations = {
-                { name = "furnace",  container = "minecraft:chest_0" },
-                { name = "crushing", container = "minecraft:barrel_1" },
-            },
 
             search_limit    = 60,
             cache_ttl       = 5,
@@ -148,7 +139,7 @@ return {
     },
 
     me_client = {
-        version = 7,
+        version = 8,
         entrypoint = "me/client.lua",
         files = {
             { src = "me/protocol.lua" },
