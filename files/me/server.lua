@@ -157,6 +157,12 @@ end
 -- check, and a wired modem that fell off is the failure this guards against.
 -- Sorted by name so the pocket screen keeps the same order between fetches;
 -- peripheral.getNames() answers in connection order, which changes.
+--
+-- These are the names *this computer* can see, while the export resolves them
+-- on the bridge's own network. Those are the same set exactly when the bridge
+-- shares the computer's wired cable, and that is the supported wiring: a
+-- bridge reachable only as a side of the computer can answer getItems() but
+-- cannot resolve any of these names.
 local function stations()
     local out = {}
     for _, name in ipairs(peripheral.getNames()) do
@@ -378,6 +384,15 @@ local function run()
         bridge.available() and colors.lime or colors.orange)
     for _, station in ipairs(list) do
         report("station", station, colors.lightGray)
+    end
+
+    -- Which methods the attached bridge has is a per-version fact, and it is
+    -- the thing an export failure turns on. Printed here rather than left to
+    -- `bridge.lua probe`, because the question only ever comes up when the
+    -- server is already running.
+    local methods = bridge.methods()
+    if methods then
+        report("methods", table.concat(methods, " "), colors.lightGray)
     end
 
     parallel.waitForAny(requests, health)

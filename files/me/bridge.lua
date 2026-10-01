@@ -114,10 +114,23 @@ local function keysOf(result)
     return table.concat(names, " ")
 end
 
--- Moves up to filter.count into `container`, and reports how much that
--- actually was. Note the argument order: exportItem takes the target first.
-function M.exportTo(filter, container)
-    local result, err = call("exportItem", container, filter)
+-- Moves up to filter.count into `target`, and reports how much that actually
+-- was.
+--
+-- Target first, filter second: that is the 0.8 signature,
+-- exportItem(target, filter). It was the other way round in 0.7, which also
+-- had exportItemToPeripheral for names and kept exportItem for directions;
+-- 0.8 dropped that method and took both kinds of target on this one.
+--
+-- How 0.8 reads the target, from the docs: a string starting with "@" is a
+-- direction relative to the bridge block ("@up", "@east"), and anything else
+-- is searched for "on the CC network" among peripherals exposing an item
+-- handler. The network it searches is the bridge's own - so a bridge with no
+-- wired modem of its own has no network to search, every name fails to
+-- resolve, and the result is INVENTORY_NOT_FOUND for a peripheral the
+-- computer can see perfectly well.
+function M.exportTo(filter, target)
+    local result, err = call("exportItem", target, filter)
     if not result then return nil, err end
 
     local moved = movedCount(result)

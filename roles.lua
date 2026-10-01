@@ -104,12 +104,13 @@ return {
     },
 
     me_server = {
-        version = 8,
+        version = 11,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
             { src = "me/bridge.lua" },
             { src = "me/server.lua" },
+            { src = "me/diag.lua" },
             { src = "bin/alert.lua" },
         },
         config = {
