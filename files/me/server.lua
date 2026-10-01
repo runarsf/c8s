@@ -8,14 +8,16 @@
 -- seconds because one trip through the UI is three requests about the same
 -- item.
 --
--- Destinations come from this role's config in roles.lua: a name a human
--- picks from, and the peripheral name exportItem needs as its target. Adding a
--- furnace is therefore a controller-side edit, not a visit to the pocket
--- computer.
+-- Destinations are discovered, not configured: every inventory on the wired
+-- network is somewhere items can go, so wiring a machine in is all it takes
+-- to be able to send to it. See stations.lua. What config is still for is
+-- the two things discovery cannot do - keeping something off the list, and
+-- insisting something is supposed to be on it.
 
-local HERE   = fs.getDir(shell.getRunningProgram())
-local me     = dofile(fs.combine(HERE, "protocol.lua"))
-local bridge = dofile(fs.combine(HERE, "bridge.lua"))
+local HERE     = fs.getDir(shell.getRunningProgram())
+local me       = dofile(fs.combine(HERE, "protocol.lua"))
+local bridge   = dofile(fs.combine(HERE, "bridge.lua"))
+local stations = dofile(fs.combine(HERE, "stations.lua"))
 
 -- Monitoring is optional on purpose: a bridge server on a computer that
 -- never got bin/alert.lua should still hand out items.
@@ -31,6 +33,7 @@ end
 local DEFAULTS = {
     bridge          = "me_bridge",
     destinations    = {},
+    ignore          = {},
     search_limit    = 60,
     cache_ttl       = 5,
     health_interval = 30,
@@ -107,21 +110,29 @@ local exportFailure
 
 -- Destinations --------------------------------------------------------------
 
-local destinations = { list = {}, byName = {} }
+-- Declared destinations are no longer how a station gets on the list -
+-- discovery does that. What they are still good for is naming one better
+-- than its block id does, and saying that something is expected: a declared
+-- destination stays on the list while it is off the network, flagged, and
+-- raises an event. Discovery can do neither, because a machine that fell off
+-- the network simply isn't discovered - there is nothing left to notice.
+local declared = {}
 
 do
     for _, entry in ipairs(config.destinations) do
         if type(entry) == "table" and type(entry.name) == "string"
             and type(entry.container) == "string" then
-            local dest = { name = entry.name, container = entry.container }
-            destinations.list[#destinations.list + 1] = dest
-            destinations.byName[dest.name:lower()] = dest
+            declared[#declared + 1] = { name = entry.name, container = entry.container }
         else
             report("config", "ignoring a malformed destination", colors.red)
         end
     end
 end
 
+-- Only declared destinations get events, and the id is built from the name in
+-- the config rather than a derived label. A discovered station's label can
+-- change - adding a second smelter numbers the first one - and an id that
+-- moves with it would leave the old event open forever.
 local function destEvent(dest)
     return "me/" .. NAME .. "/dest/" .. dest.name
 end
@@ -130,18 +141,59 @@ local function missingMessage(dest)
     return dest.name .. " (" .. dest.container .. ") is not on the network"
 end
 
--- Presence is checked fresh every time rather than remembered: a wired modem
--- that fell off is the whole failure mode this guards against.
+-- Built fresh every time rather than cached: the list *is* the presence
+-- check now, and a wired modem that fell off is the whole failure mode this
+-- guards against. Declared entries come first so that the handful somebody
+-- cared enough to name stay at the top of the pocket screen.
 local function destinationList()
-    local out = {}
-    for index, dest in ipairs(destinations.list) do
-        out[index] = {
+    local out, seen = {}, {}
+
+    for _, dest in ipairs(declared) do
+        out[#out + 1] = {
             name      = dest.name,
             container = dest.container,
             missing   = not peripheral.isPresent(dest.container),
+            declared  = true,
         }
+        seen[dest.container] = true
     end
+
+    local found = stations.discover{
+        ignore = config.ignore,
+        -- The bridge is an inventory as far as the network is concerned, and
+        -- exporting the system's contents into the system is not a thing
+        -- anyone means to do.
+        exclude = { bridge.attachedName() },
+    }
+    for _, dest in ipairs(found) do
+        if not seen[dest.container] then
+            out[#out + 1] = {
+                name      = dest.name,
+                container = dest.container,
+                missing   = false,
+            }
+        end
+    end
+
     return out
+end
+
+-- The client sends back a container name, because that is the only part of a
+-- destination that does not move: labels are derived now, and "Chest 0" can
+-- mean a different chest once a modem has been replaced. A label is still
+-- accepted so that a client which synced before this change keeps working,
+-- but it is tried second - resolving a container name is never a guess.
+local function resolveDestination(key)
+    key = tostring(key or "")
+    if key == "" then return nil end
+
+    local list = destinationList()
+    for _, dest in ipairs(list) do
+        if dest.container == key then return dest end
+    end
+    for _, dest in ipairs(list) do
+        if dest.name:lower() == key:lower() then return dest end
+    end
 end
 
 -- Search --------------------------------------------------------------------
@@ -203,7 +255,7 @@ local function send(msg)
         return { op = "error", message = "count must be a positive number" }
     end
 
-    local dest = destinations.byName[tostring(msg.destination or ""):lower()]
+    local dest = resolveDestination(msg.destination)
     if not dest then
         return { op = "error", message = "no destination called '"
             .. tostring(msg.destination) .. "'" }
@@ -312,7 +364,7 @@ local function health()
             raise(BRIDGE_EVENT, "critical", "No ME Bridge attached")
         end
 
-        for _, dest in ipairs(destinations.list) do
+        for _, dest in ipairs(declared) do
             if peripheral.isPresent(dest.container) then
                 resolve(destEvent(dest))
             else
@@ -339,13 +391,19 @@ local function run()
     -- rednet.lookup working for anything that prefers it.
     pcall(rednet.host, me.PROTOCOL, me.HOSTNAME)
 
-    report("up", ("%s - %d destination%s, %s"):format(NAME, #destinations.list,
-        #destinations.list == 1 and "" or "s",
+    -- Printed in full rather than counted: this banner is where you find out
+    -- whether the machine you just wired in came through, and what the client
+    -- is going to call it.
+    local list = destinationList()
+    report("up", ("%s - %d destination%s, %s"):format(NAME, #list,
+        #list == 1 and "" or "s",
         bridge.available() and "bridge ready" or "no bridge yet"),
         bridge.available() and colors.lime or colors.orange)
-    for _, dest in ipairs(destinations.list) do
-        report("dest", dest.name .. " -> " .. dest.container,
-            peripheral.isPresent(dest.container) and colors.white or colors.red)
+    for _, dest in ipairs(list) do
+        report(dest.declared and "dest" or "found",
+            dest.name .. " -> " .. dest.container,
+            dest.missing and colors.red
+                or (dest.declared and colors.white or colors.lightGray))
     end
 
     parallel.waitForAny(requests, health)

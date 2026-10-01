@@ -9,7 +9,7 @@ return {
     },
 
     smart_glasses = {
-        version = 10,
+        version = 11,
         settings = {
             ["monitoring.sounds.info"]     = "sounds/info.dfpwm",
             ["monitoring.sounds.warning"]  = "sounds/warning.dfpwm",
@@ -104,11 +104,12 @@ return {
     },
 
     me_server = {
-        version = 3,
+        version = 4,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
             { src = "me/bridge.lua" },
+            { src = "me/stations.lua" },
             { src = "me/server.lua" },
             { src = "bin/alert.lua" },
         },
@@ -116,10 +117,28 @@ return {
             -- A peripheral type, or a specific name ("me_bridge_0", "back")
             -- when there is more than one bridge on the network.
             bridge = "me_bridge",
+
+            -- Destinations are discovered: every inventory on the server's
+            -- wired network is offered, so a new machine needs no entry here.
+            -- These two lists are the exceptions.
+
+            -- Patterns (Lua patterns, matched against the peripheral name)
+            -- for inventories that are not places to send things. The ME
+            -- system's own interfaces, drives and pattern providers are the
+            -- usual entries - they are inventories, and exporting into one
+            -- puts the items straight back where they came from. Add them by
+            -- what `me/stations.lua list` on the server actually prints.
+            ignore = {},
+
+            -- Stations worth naming by hand, and worth being told about when
+            -- they go missing: a declared one keeps its name, stays on the
+            -- list while it is off the network, and raises a monitoring
+            -- event. Everything else is discovered and named after its block.
             destinations = {
                 { name = "furnace",  container = "minecraft:chest_0" },
                 { name = "crushing", container = "minecraft:barrel_1" },
             },
+
             search_limit    = 60,
             cache_ttl       = 5,
             health_interval = 30,
@@ -127,7 +146,7 @@ return {
     },
 
     me_client = {
-        version = 3,
+        version = 4,
         entrypoint = "me/client.lua",
         files = {
             { src = "me/protocol.lua" },

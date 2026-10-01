@@ -167,7 +167,9 @@ local function render()
     elseif screen == "dest" then
         bar(1, (" send %d where?"):format(wanted()), width)
         if not dests or #dests == 0 then
-            line(3, " no destinations set up", width, colors.lightGray)
+            -- Nothing is "set up" any more, so the empty list means the
+            -- server found no inventory on its network at all.
+            line(3, " no stations found", width, colors.lightGray)
         else
             drawList(dests, destPick, width, height, function(entry, w, isSel)
                 return row(entry.name, entry.missing and "gone" or nil, w,
@@ -253,11 +255,15 @@ local function sendIt()
     status = " sending..."
     render()
 
+    -- The container name, not the label on screen: labels are derived from
+    -- the block on the server side, and the one this list was drawn from can
+    -- have been renumbered by the time the send goes out. The container is
+    -- what both ends agree on.
     local reply, err = request({
         op          = "send",
         item        = { name = item.name, nbt = item.nbt },
         count       = count,
-        destination = dest.name,
+        destination = dest.container or dest.name,
     })
 
     -- Back to the results either way: the footer carries the outcome, and a
