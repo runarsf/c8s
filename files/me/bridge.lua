@@ -124,11 +124,12 @@ end
 --
 -- How 0.8 reads the target, from the docs: a string starting with "@" is a
 -- direction relative to the bridge block ("@up", "@east"), and anything else
--- is searched for "on the CC network" among peripherals exposing an item
--- handler. The network it searches is the bridge's own - so a bridge with no
--- wired modem of its own has no network to search, every name fails to
--- resolve, and the result is INVENTORY_NOT_FOUND for a peripheral the
--- computer can see perfectly well.
+-- is searched for among peripherals exposing "an item handler or capability".
+-- The search covers what the calling computer can see, bridge included - a
+-- bridge flush against the computer needs no modem of its own and resolves
+-- names as "bottom" or whichever side it is on. What it will not resolve is a
+-- peripheral with no item handler, however plainly it is wired in, and
+-- INVENTORY_NOT_FOUND is that and not a wiring fault.
 function M.exportTo(filter, target)
     local result, err = call("exportItem", target, filter)
     if not result then return nil, err end

@@ -104,7 +104,7 @@ return {
     },
 
     me_server = {
-        version = 12,
+        version = 13,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
@@ -118,19 +118,21 @@ return {
             -- when there is more than one bridge on the network.
             bridge = "me_bridge",
 
-            -- A station is a peripheral on the server's wired network, named
-            -- the way the network names it. Wiring a machine in is all it
-            -- takes to be able to send to it, so there is no list of them
-            -- here - only of what to leave out.
+            -- A station is any inventory on the server's wired network,
+            -- named the way the network names it. Wiring a chest or a barrel
+            -- in is all it takes to be able to send to it, so there is no
+            -- list of them here - only of what to leave out.
+            --
+            -- Machines generally cannot be exported to directly: the bridge
+            -- only accepts a target that exposes an item handler, which
+            -- Advanced Peripherals machine peripherals do not. Give one a
+            -- chest and a hopper and send to the chest.
             --
             -- Lua patterns, matched against the peripheral name. The ME
             -- system's own interfaces and pattern providers are the usual
             -- entries - exporting into one puts the items straight back
-            -- where they came from - along with any Advanced Peripherals
-            -- gadget on the same network, which holds no items but cannot be
-            -- told apart from a machine that does. The server prints its
-            -- stations on boot, and `me/bridge.lua probe` lists every
-            -- peripheral with its type.
+            -- where they came from. `me/diag.lua` shows every peripheral,
+            -- its types, and what the bridge does when asked to export to it.
             ignore = {},
 
             search_limit    = 60,

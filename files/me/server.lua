@@ -114,31 +114,27 @@ local exportFailure
 
 -- Stations ------------------------------------------------------------------
 
--- Everything on the network is a station except what cannot hold an item.
+-- A station is a peripheral with CC:Tweaked's generic "inventory" type.
 --
--- The test started out the other way round - accept what claims CC:Tweaked's
--- generic "inventory" type - and found nothing on a network with a smelting
--- factory plainly wired into it. Advanced Peripherals claims a Mekanism
--- machine before CC's own inventory provider gets to it, so the factory is
--- type "ultimateSmeltingFactory" with no inventory type and no list(). The
--- bridge exports through the block's own item handler rather than through
--- anything CC exposes, so testing for an interface the export never uses only
--- means being told there are no stations when there plainly is one.
+-- That is the same criterion the export uses. AP 0.8 resolves a target name
+-- by looking for a peripheral "which exposes an item handler or capability",
+-- and CC gives the inventory type to exactly the blocks that have one.
 --
--- Inverted, this list stays short and fixed: all of it is CC:Tweaked itself
--- plus the bridge, and no mod's machines appear in it. Guessing wrong in this
--- direction costs one error message from exportItem, which is reported and
--- raised; guessing wrong in the other costs a machine you cannot use and no
--- way to find out why.
-local NOT_A_STATION = {
-    modem = true, monitor = true, speaker = true, drive = true,
-    computer = true,
-    -- Exporting the system's contents back into the system. Both spellings
-    -- because Advanced Peripherals has used both, and matching on the type
-    -- also catches a bridge sitting flush against the computer, which the
-    -- network calls "back" like any other side.
-    me_bridge = true, meBridge = true,
-}
+-- This was briefly inverted - offer everything except modems, monitors and
+-- the bridge - on the theory that an Advanced Peripherals machine exports
+-- fine through its own item handler even though it hides the inventory type.
+-- It does not: me/diag.lua put one cobblestone through every peripheral name
+-- on the network and ultimateSmeltingFactory_0 answered INVENTORY_NOT_FOUND
+-- like everything else that is not an inventory. All the inversion achieved
+-- was a station on the list that could never receive anything.
+local function isInventory(name)
+    -- All of a peripheral's types, not just the first: CC returns the extra
+    -- ones as further return values, and "inventory" is always an extra one.
+    local kinds = table.pack(peripheral.getType(name))
+    for index = 1, kinds.n do
+        if kinds[index] == "inventory" then return true end
+    end
+end
 
 -- Lua patterns, matched against the name as the network gave it. Not
 -- lowercased first: folding the case of a pattern turns %D into %d and
@@ -157,24 +153,10 @@ end
 -- check, and a wired modem that fell off is the failure this guards against.
 -- Sorted by name so the pocket screen keeps the same order between fetches;
 -- peripheral.getNames() answers in connection order, which changes.
---
--- These are the names *this computer* can see, while the export resolves them
--- on the bridge's own network. Those are the same set exactly when the bridge
--- shares the computer's wired cable, and that is the supported wiring: a
--- bridge reachable only as a side of the computer can answer getItems() but
--- cannot resolve any of these names.
 local function stations()
     local out = {}
     for _, name in ipairs(peripheral.getNames()) do
-        local skip = ignored(name)
-        -- All of a peripheral's types, not just the first: CC:Tweaked returns
-        -- the extra ones as further return values, and a block can be two
-        -- things at once - a wired modem is also a peripheral_hub.
-        local kinds = table.pack(peripheral.getType(name))
-        for index = 1, kinds.n do
-            if NOT_A_STATION[kinds[index]] then skip = true end
-        end
-        if not skip then out[#out + 1] = name end
+        if isInventory(name) and not ignored(name) then out[#out + 1] = name end
     end
     table.sort(out)
     return out
