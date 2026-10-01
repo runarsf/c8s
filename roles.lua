@@ -104,7 +104,7 @@ return {
     },
 
     me_server = {
-        version = 4,
+        version = 5,
         entrypoint = "me/server.lua",
         files = {
             { src = "me/protocol.lua" },
@@ -122,12 +122,14 @@ return {
             -- wired network is offered, so a new machine needs no entry here.
             -- These two lists are the exceptions.
 
-            -- Patterns (Lua patterns, matched against the peripheral name)
-            -- for inventories that are not places to send things. The ME
-            -- system's own interfaces, drives and pattern providers are the
-            -- usual entries - they are inventories, and exporting into one
-            -- puts the items straight back where they came from. Add them by
-            -- what `me/stations.lua list` on the server actually prints.
+            -- Everything on the server's network is offered except what
+            -- these patterns (Lua patterns, matched against the peripheral
+            -- name) match. The ME system's own interfaces and pattern
+            -- providers are the usual entries - exporting into one puts the
+            -- items straight back where they came from - along with any
+            -- Advanced Peripherals gadget on the same network, which holds
+            -- no items but cannot be told apart from a machine that does.
+            -- Fill this in from what `me/stations.lua list` prints.
             ignore = {},
 
             -- Stations worth naming by hand, and worth being told about when
